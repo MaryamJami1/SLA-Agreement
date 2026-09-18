@@ -31,6 +31,61 @@ function is_production(): bool
     return cfg('APP_ENV') === 'production';
 }
 
+/** The client's IP address (REMOTE_ADDR), or null on the command line. */
+function client_ip(): ?string
+{
+    return isset($_SERVER['REMOTE_ADDR']) ? substr((string) $_SERVER['REMOTE_ADDR'], 0, 45) : null;
+}
+
+/** Site-relative URL, honouring an optional BASE_URL prefix (e.g. '/portal'). */
+function url(string $path = ''): string
+{
+    return rtrim((string) cfg('BASE_URL', ''), '/') . '/' . ltrim($path, '/');
+}
+
+function redirect(string $path): void
+{
+    header('Location: ' . url($path), true, 303);
+    exit;
+}
+
+/** Queue a one-time message for the next page ('ok', 'error' or 'info'). */
+function flash(string $type, string $message): void
+{
+    $_SESSION['flash'][] = ['type' => $type, 'message' => $message];
+}
+
+/** Take (and clear) the queued messages. */
+function take_flashes(): array
+{
+    $messages = $_SESSION['flash'] ?? [];
+    unset($_SESSION['flash']);
+    return $messages;
+}
+
+/** The plan's uniform "not found" response: used for missing records AND for access denied. */
+function not_found(): void
+{
+    http_response_code(404);
+    $pageTitle = 'Not found';
+    $bare = true;
+    require APP_ROOT . '/app/views/layout_top.php';
+    echo '<div class="auth-card"><h2>Page not found</h2><p class="muted">The page you asked for doesn\'t exist.</p>'
+        . '<p><a class="btn primary" href="' . h(url('index.php')) . '">Go to the home page</a></p></div>';
+    require APP_ROOT . '/app/views/layout_bottom.php';
+    exit;
+}
+
+/** Only POST is accepted (state-changing endpoints such as logout). */
+function require_post(): void
+{
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+        http_response_code(405);
+        header('Allow: POST');
+        exit('Method not allowed.');
+    }
+}
+
 /** Append a line to storage/logs/app-YYYY-MM.log. Never throws. */
 function app_log(string $message): void
 {
