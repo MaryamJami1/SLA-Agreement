@@ -16,6 +16,7 @@ require APP_ROOT . '/app/money.php';
 require APP_ROOT . '/app/counters.php';
 require APP_ROOT . '/app/audit.php';
 require APP_ROOT . '/app/auth.php';
+require APP_ROOT . '/app/bookings.php';
 
 $config = require APP_ROOT . '/config/config.php';
 $GLOBALS['APP_CONFIG'] = $config;
@@ -279,6 +280,135 @@ check('rows older than 90 days purged', (int) $pdo->query("SELECT COUNT(*) FROM 
 
 // Audit log: login_ok written for successes.
 check('login_ok audited', (int) $pdo->query("SELECT COUNT(*) FROM audit_log WHERE action = 'login_ok'")->fetchColumn() >= 4, true);
+
+// ---------------------------------------------------------------------------
+// Booking save (Phase 3): create, reopen, edit, stale version, ownership, snapshots
+// ---------------------------------------------------------------------------
+$vendorRow = $pdo->query("SELECT * FROM users WHERE username = 'okvendor'")->fetch();
+$pdo->prepare('UPDATE users SET firm_name = ?, rep_name = ?, contact = ? WHERE id = ?')
+    ->execute(['Uzair Caterers', 'Uzair Khan', '0312-2159834', $vendorRow['id']]);
+$vendorRow = $pdo->query("SELECT * FROM users WHERE username = 'okvendor'")->fetch();
+$adminRow = $pdo->query("SELECT * FROM users WHERE username = 'admin'")->fetch();
+$catalogId = static fn(string $name) => (int) $pdo->query('SELECT id FROM item_catalog WHERE name = ' . $pdo->quote($name) . ' ORDER BY id LIMIT 1')->fetchColumn();
+$lawnA = (int) $pdo->query("SELECT id FROM venues WHERE name = 'Lawn A'")->fetchColumn();
+$venueCharge = $catalogId('Venue Charges');
+$led = $catalogId('LED');
+$sofa = (int) $pdo->query("SELECT id FROM item_catalog WHERE section = 'ops_item' AND name = 'Sofa'")->fetchColumn();
+
+/** Parse + save like save.php does. Returns [result|null, errors]. */
+$submit = static function (array $user, ?int $id, ?int $version, array $post) use ($pdo): array {
+    $existing = null;
+    if ($id !== null) {
+        $st = $pdo->prepare('SELECT * FROM bookings WHERE id = ?');
+        $st->execute([$id]);
+        $existing = $st->fetch();
+    }
+    $formLines = booking_form_lines($pdo, $id);
+    $parsed = parse_booking_input($pdo, $post, $user, $existing, $formLines);
+    if ($parsed['errors']) {
+        return [null, $parsed['errors']];
+    }
+    try {
+        return [save_booking_draft($pdo, $user, $id, $version, $parsed['fields'], $parsed['lines']), []];
+    } catch (BookingValidationError $e) {
+        return [null, $e->errors];
+    } catch (BookingConflict $e) {
+        return [null, ['conflict' => true]];
+    }
+};
+$bookingRow = static function (int $id) use ($pdo): array {
+    return $pdo->query("SELECT * FROM bookings WHERE id = $id")->fetch();
+};
+
+$post = [
+    'client_name' => 'Ayesha Siddiqui', 'client_cnic' => '4210112345671', 'event_type' => 'Valima',
+    'event_date' => '2026-12-20', 'venue_id' => (string) $lawnA, 'guests' => '200', 'per_head_rate' => '1,500',
+    'setup_time' => '18:00', 'vendor_id' => (string) $adminRow['id'], // forged: vendors can't choose the owner
+    'firm_name' => 'Forged Firm', 'event_type_other' => 'ignored because type is not Other',
+    'lines' => [
+        "c$venueCharge" => ['present' => '1', 'selected' => '1', 'rate' => '50000'],
+        "c$led" => ['present' => '1', 'selected' => '1', 'notes' => 'warm white'],
+        "c$sofa" => ['present' => '1', 'selected' => '1', 'qty' => '2'],
+    ],
+];
+[$created, $errs] = $submit($vendorRow, null, null, $post);
+check('vendor creates a draft', $errs, []);
+$b = $bookingRow($created['id']);
+check('new booking gets an SLA number', preg_match('/^SLA-\d{4}-\d{4}$/', $created['unique_id']), 1);
+check('vendor_id forced to the creating vendor', (int) $b['vendor_id'], (int) $vendorRow['id']);
+check('created_by = vendor', (int) $b['created_by'], (int) $vendorRow['id']);
+check('firm snapshot from the vendor profile, not the POST', [$b['firm_name'], $b['rep_name'], $b['rep_contact']], ['Uzair Caterers', 'Uzair Khan', '0312-2159834']);
+check('status draft, version 1', [$b['status'], (int) $b['version']], ['draft', 1]);
+check('CNIC normalized', $b['client_cnic'], '42101-1234567-1');
+check('"Other" text dropped when type is not Other', $b['event_type_other'], null);
+check('time stored', $b['setup_time'], '18:00:00');
+check('totals stored', [$b['guest_charges'], $b['charges_total'], $b['grand_total'], $b['balance']], ['300000.00', '50000.00', '350000.00', '350000.00']);
+$lines = $pdo->query("SELECT section, label, unit_snapshot, is_selected, qty, rate, amount, notes FROM booking_line_items WHERE booking_id = {$created['id']} ORDER BY section, id")->fetchAll();
+check('only ticked catalog items stored', array_column($lines, 'label'), ['Venue Charges', 'LED', 'Sofa']);
+check('charge line snapshot and amount', [$lines[0]['unit_snapshot'], $lines[0]['rate'], $lines[0]['amount']], ['fixed', '50000.00', '50000.00']);
+check('decor line has no money', [$lines[1]['rate'], $lines[1]['amount'], $lines[1]['notes']], [null, '0.00', 'warm white']);
+check('ops line qty', (int) $lines[2]['qty'], 2);
+check('create audited', (int) $pdo->query("SELECT COUNT(*) FROM audit_log WHERE action = 'create' AND booking_id = {$created['id']}")->fetchColumn(), 1);
+
+// Reopen: existing lines by line id, other catalog items offered unselected.
+$formLines = booking_form_lines($pdo, $created['id']);
+$existingKeys = array_values(array_filter(array_keys($formLines), static fn($k) => $k[0] === 'l'));
+check('reopen shows the 3 saved lines', count($existingKeys), 3);
+check('reopen still offers other catalog items', isset($formLines["c$venueCharge"]), false);
+check('reopen offers an unticked catalog item', isset($formLines['c' . $catalogId('Valet Parking')]), true);
+
+// Edit with the right version: guests 200 → 250.
+$venueLineKey = 'l' . $pdo->query("SELECT id FROM booking_line_items WHERE booking_id = {$created['id']} AND section = 'charge'")->fetchColumn();
+$edit = ['guests' => '250', 'lines' => [$venueLineKey => ['present' => '1', 'selected' => '1', 'rate' => '50000']]] + $post;
+unset($edit['lines']["c$venueCharge"]);
+[$r, $errs] = $submit($vendorRow, $created['id'], 1, $edit);
+check('edit with current version saves', $errs, []);
+$b = $bookingRow($created['id']);
+check('version bumped', (int) $b['version'], 2);
+check('guest charges recomputed', $b['guest_charges'], '375000.00');
+$upd = json_decode($pdo->query("SELECT details FROM audit_log WHERE action = 'update' AND booking_id = {$created['id']} ORDER BY id DESC LIMIT 1")->fetchColumn(), true);
+check('update audited with old → new', $upd['changed']['guests'] ?? null, [200, 250]);
+
+// Stale version (the second browser tab).
+[$r, $errs] = $submit($vendorRow, $created['id'], 1, ['guests' => '999'] + $edit);
+check('stale version rejected', $errs, ['conflict' => true]);
+check('stale save changed nothing', [(int) $bookingRow($created['id'])['version'], (int) $bookingRow($created['id'])['guests']], [2, 250]);
+
+// Discount above sub total: rejected, nothing written.
+[$r, $errs] = $submit($vendorRow, $created['id'], 2, ['discount' => '999999'] + $edit);
+check('discount > sub total rejected', array_keys($errs), ['discount']);
+check('rejected save wrote nothing', (int) $bookingRow($created['id'])['version'], 2);
+
+// Validation: client name required, bad values listed per field.
+[$r, $errs] = $submit($vendorRow, null, null, ['client_name' => '', 'guests' => '-5', 'event_date' => '2026-02-30']);
+check('field errors reported', array_keys($errs), ['event_date', 'guests', 'client_name']);
+
+// Catalog rename doesn't touch saved lines.
+$pdo->exec("UPDATE item_catalog SET name = 'Hall Hire' WHERE id = $venueCharge");
+check('catalog rename keeps the snapshot label', $pdo->query("SELECT label FROM booking_line_items WHERE booking_id = {$created['id']} AND section = 'charge'")->fetchColumn(), 'Venue Charges');
+
+// Admin: vendor must be active; blank snapshot filled from the vendor's profile.
+$pendingId = (int) $pdo->query("SELECT id FROM users WHERE username = 'pendingvendor'")->fetchColumn();
+[$r, $errs] = $submit($adminRow, null, null, ['client_name' => 'Walk-in', 'vendor_id' => (string) $pendingId]);
+check('admin cannot assign a pending vendor', array_keys($errs), ['vendor_id']);
+[$r, $errs] = $submit($adminRow, null, null, ['client_name' => 'Walk-in', 'vendor_id' => (string) $vendorRow['id'], 'venue_id' => (string) $lawnA, 'event_date' => '2026-12-20']);
+check('admin assigns an active vendor', $errs, []);
+$b2 = $bookingRow($r['id']);
+check('snapshot filled from the vendor profile', $b2['firm_name'], 'Uzair Caterers');
+check('created_by = admin, vendor_id = vendor', [(int) $b2['created_by'], (int) $b2['vendor_id']], [(int) $adminRow['id'], (int) $vendorRow['id']]);
+[$r2, $errs] = $submit($adminRow, $r['id'], 1, ['client_name' => 'Walk-in', 'vendor_id' => (string) $vendorRow['id'], 'firm_name' => 'Override Firm',
+    'venue_id' => (string) $lawnA, 'event_date' => '2026-12-20']);
+check('admin re-save keeps created_by, override kept', [(int) $bookingRow($r['id'])['created_by'], $bookingRow($r['id'])['firm_name']], [(int) $adminRow['id'], 'Override Firm']);
+
+// Venue warning: two drafts on Lawn A on 20 Dec.
+$clashes = venue_clashes($pdo, $created['id'], $lawnA, '2026-12-20');
+check('clash with the other draft found', array_column($clashes, 'status'), ['draft']);
+check('vendor clash message hides the SLA number', strpos(venue_clash_messages($clashes, '2026-12-20', false)[0], 'SLA-') === false, true);
+
+// A confirmed booking can't be saved as a draft.
+$pdo->exec("UPDATE bookings SET status = 'confirmed' WHERE id = {$created['id']}");
+[$r, $errs] = $submit($adminRow, $created['id'], 2, $edit);
+check('confirmed booking refused by the draft save', array_keys($errs), ['status']);
 
 // ---------------------------------------------------------------------------
 $server->exec("DROP DATABASE `$testDb`");

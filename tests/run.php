@@ -10,6 +10,7 @@ require __DIR__ . '/../app/helpers.php';
 require __DIR__ . '/../app/money.php';
 require __DIR__ . '/../app/counters.php';
 require __DIR__ . '/../app/auth.php';
+require __DIR__ . '/../app/bookings.php';
 
 $passed = 0;
 $failed = [];
@@ -264,6 +265,87 @@ check('allowlist logout', is_password_change_allowlisted('/portal/auth/logout.ph
 check('allowlist blocks home', is_password_change_allowlisted('/index.php'), false);
 check('allowlist blocks admin', is_password_change_allowlisted('/admin/vendors.php'), false);
 check('allowlist blocks look-alike', is_password_change_allowlisted('/auth/change_password.php.bak'), false);
+
+// ---------------------------------------------------------------------------
+// Booking field parsing
+// ---------------------------------------------------------------------------
+check('text trimmed/empty → null', parse_booking_value('text', 10, ''), null);
+check('text kept', parse_booking_value('text', 10, 'Ali'), 'Ali');
+check_rejects('text too long', fn() => parse_booking_value('text', 3, 'abcd'));
+check('text length counts characters, not bytes (Urdu)', parse_booking_value('text', 5, 'عائشہ'), 'عائشہ');
+check('select valid', parse_booking_value('select', EVENT_TYPES, 'Valima'), 'Valima');
+check_rejects('select invalid', fn() => parse_booking_value('select', EVENT_TYPES, 'Rave'));
+check('cnic formatted from 13 digits', parse_booking_value('cnic', 15, '4210112345671'), '42101-1234567-1');
+check('cnic with dashes', parse_booking_value('cnic', 15, '42101-1234567-1'), '42101-1234567-1');
+check_rejects('cnic wrong length', fn() => parse_booking_value('cnic', 15, '42101-123456-1'));
+check('date valid', parse_booking_value('date', null, '2026-12-20'), '2026-12-20');
+check_rejects('date 31 Feb', fn() => parse_booking_value('date', null, '2026-02-31'));
+check_rejects('date wrong format', fn() => parse_booking_value('date', null, '20/12/2026'));
+check_rejects('date year 1999', fn() => parse_booking_value('date', null, '1999-12-20'));
+check('time HH:MM → HH:MM:SS', parse_booking_value('time', null, '18:30'), '18:30:00');
+check_rejects('time 24:00', fn() => parse_booking_value('time', null, '24:00'));
+check('count', parse_booking_value('count', null, '250'), 250);
+check_rejects('count negative', fn() => parse_booking_value('count', null, '-5'));
+check('money → decimal', parse_booking_value('money', null, '1,500'), '1500.00');
+check_rejects('money negative', fn() => parse_booking_value('money', null, '-1'));
+check('pct → decimal', parse_booking_value('pct', null, '50'), '50.00');
+check_rejects('pct over 100', fn() => parse_booking_value('pct', null, '150'));
+
+// ---------------------------------------------------------------------------
+// Authorization rule (load_booking_for_user)
+// ---------------------------------------------------------------------------
+$adminU = ['id' => 1, 'role' => 'admin'];
+$owner = ['id' => 5, 'role' => 'vendor'];
+$other = ['id' => 6, 'role' => 'vendor'];
+$bk = static fn(string $status, ?int $vendorId = 5) => ['status' => $status, 'vendor_id' => $vendorId];
+check('owner views own booking', booking_allows($bk('confirmed'), $owner, 'view'), true);
+check('other vendor cannot view', booking_allows($bk('draft'), $other, 'view'), false);
+check('vendor cannot view unassigned draft', booking_allows($bk('draft', null), $owner, 'view'), false);
+check('owner edits own draft', booking_allows($bk('draft'), $owner, 'edit'), true);
+check('owner cannot edit confirmed', booking_allows($bk('confirmed'), $owner, 'edit'), false);
+check('admin edits confirmed (amendment)', booking_allows($bk('confirmed'), $adminU, 'edit'), true);
+check('admin cannot edit completed', booking_allows($bk('completed'), $adminU, 'edit'), false);
+check('admin cannot edit cancelled', booking_allows($bk('cancelled'), $adminU, 'edit'), false);
+check('owner deletes own draft', booking_allows($bk('draft'), $owner, 'delete'), true);
+check('nobody deletes confirmed', [booking_allows($bk('confirmed'), $owner, 'delete'), booking_allows($bk('confirmed'), $adminU, 'delete')], [false, false]);
+check('money/confirm is admin only', [booking_allows($bk('draft'), $owner, 'admin'), booking_allows($bk('draft'), $adminU, 'admin')], [false, true]);
+check('unknown intent denied', booking_allows($bk('draft'), $adminU, 'anything'), false);
+check('scope: admin sees all', booking_scope_sql($adminU), ['1 = 1', []]);
+check('scope: vendor sees own', booking_scope_sql($owner), ['b.vendor_id = ?', [5]]);
+
+// ---------------------------------------------------------------------------
+// Line validation
+// ---------------------------------------------------------------------------
+$formLines = [
+    'l1' => ['key' => 'l1', 'line_id' => 1, 'catalog_id' => 1, 'section' => 'charge', 'label' => 'Venue', 'unit' => 'fixed', 'selected' => true, 'qty' => null, 'rate' => '5000.00', 'notes' => null, 'sort_order' => 1],
+    'c2' => ['key' => 'c2', 'line_id' => null, 'catalog_id' => 2, 'section' => 'charge', 'label' => 'Tracing', 'unit' => 'per unit', 'selected' => false, 'qty' => null, 'rate' => '300.00', 'notes' => null, 'sort_order' => 2],
+    'c3' => ['key' => 'c3', 'line_id' => null, 'catalog_id' => 3, 'section' => 'decor_light', 'label' => 'LED', 'unit' => 'fixed', 'selected' => false, 'qty' => null, 'rate' => null, 'notes' => null, 'sort_order' => 1],
+    'c4' => ['key' => 'c4', 'line_id' => null, 'catalog_id' => 4, 'section' => 'ops_item', 'label' => 'Sofa', 'unit' => 'per unit', 'selected' => false, 'qty' => null, 'rate' => null, 'notes' => null, 'sort_order' => 1],
+];
+[$pl, $pe] = parse_booking_lines([
+    'l1' => ['present' => '1', 'rate' => '6,000', 'notes' => ' ok '],          // unticked existing line: kept, unselected
+    'c2' => ['present' => '1', 'selected' => '1', 'rate' => '300', 'qty' => '4'],
+    'c3' => ['present' => '1', 'rate' => '999'],                                // unticked catalog item: not stored
+    'c4' => ['present' => '1', 'selected' => '1', 'qty' => '2', 'rate' => '50'], // ops: rate ignored
+    'l99' => ['present' => '1', 'selected' => '1', 'rate' => '1'],              // not on this form: ignored
+], $formLines);
+check('line errors none', $pe, []);
+check('lines kept', array_keys($pl), ['l1', 'c2', 'c4']);
+check('existing line unselected with new rate', $pl['l1']['new'], ['selected' => false, 'rate' => '6000.00', 'qty' => null, 'notes' => 'ok']);
+check('per-unit charge qty', $pl['c2']['new'], ['selected' => true, 'rate' => '300.00', 'qty' => 4, 'notes' => null]);
+check('ops item has qty, no rate', [$pl['c4']['new']['qty'], $pl['c4']['new']['rate']], [2, null]);
+check('section/label come from the form lines, not the POST', [$pl['c2']['section'], $pl['c2']['label']], ['charge', 'Tracing']);
+[, $pe] = parse_booking_lines(['c2' => ['present' => '1', 'selected' => '1', 'rate' => '', 'qty' => '1']], $formLines);
+check('selected charge needs a rate', array_keys($pe), ['line_c2']);
+[, $pe] = parse_booking_lines(['c2' => ['present' => '1', 'selected' => '1', 'rate' => '10', 'qty' => '']], $formLines);
+check('selected per-unit charge needs a qty', array_keys($pe), ['line_c2']);
+[, $pe] = parse_booking_lines(['l1' => ['present' => '1', 'selected' => '1', 'rate' => '-5']], $formLines);
+check('negative rate rejected', array_keys($pe), ['line_l1']);
+[$pl] = parse_booking_lines([], $formLines);
+check('no posted lines → no changes', $pl, []);
+
+check('field diff', booking_field_diff(['guests' => 250, 'discount' => '0.00', 'theme' => null, 'setup_time' => '18:00:00'],
+    ['guests' => 300, 'discount' => '0.00', 'theme' => null, 'setup_time' => '18:00:00']), ['guests' => [250, 300]]);
 
 // ---------------------------------------------------------------------------
 echo "\n", $passed, ' passed, ', count($failed), " failed\n";

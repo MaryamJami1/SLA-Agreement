@@ -71,7 +71,7 @@ req a GET /admin/vendors.php; contains "is now active" "vendor approved"
 csrf v /auth/login.php
 req v POST /auth/login.php "_csrf=$TOKEN" "username=uzair.k" "password=VendorPass-01"
 expect "$CODE $LOC" "303 /index.php" "approved vendor signs in"
-req v GET /;                  contains "Signed in for <strong>Uzair Caterers" "vendor home page"
+req v GET /;                  contains "Welcome, Uzair Khan" "vendor home page"
 req v GET /admin/vendors.php; expect "$CODE" "404" "vendor gets 404 on the admin page"
 
 echo "== Disabling signs the vendor out on the next click"
