@@ -1,6 +1,8 @@
 # AO Mess Event Booking & SLA System (PHP + MySQL, Hostinger)
 
-> Status: **IMPLEMENTATION-READY — Rev 5** (Rev 4 plus final clarifications: bootstrap path by folder depth, refunds on cancelled bookings only, one booking per venue per day; refund cap). Implementation not started; waiting for "start coding".
+> Status: **IMPLEMENTATION-READY — Rev 6**. Implementation not started; waiting for "start coding".
+> Rev 5: bootstrap path by folder depth, refunds on cancelled bookings only, one booking per venue per day, refund cap.
+> Rev 6 (from plan review + code review of the mockups): void permissions per status, cancelled-booking balance, staging/web-root guard, amendment lock order, booking ownership rules, completion rules, attachment voiding, catalog items on existing bookings, unsaved-changes warning, session/throttling/download hardening, extra audit actions.
 > No PHP/SQL/CSS will be written until you explicitly say "start coding".
 
 ## 1. Context
@@ -32,6 +34,7 @@ Goal: a real PHP + MySQL web app on Hostinger shared hosting where AO Mess admin
 - CSS palette, typography and layout → `public/assets/css/style.css`.
 - The print trick: the page is wrapped in a single-row `<table class="page-table">` with the letterhead in `<thead>`, so the letterhead reprints on every printed page.
 - Client-side conveniences: live totals preview, event-day autofill, cheque-field toggle, print button → `public/assets/js/app.js`. These are cosmetic only; the server recomputes everything.
+- **New in `app.js`: unsaved-changes warning.** Once the booking form has been edited, leaving the page (a link, Back, closing the tab) triggers a `beforeunload` prompt; submitting the form clears it. The mockup silently discarded unsaved edits when another record was opened.
 - `renderInvoice()` layout: `INV-` number derived from the SLA ID, Billed To / Event Reference boxes, amount in words, signature lines.
 - Amount in words with **lakh/crore grouping**, and Rs. formatting with South Asian digit grouping (`12,34,567`).
 - Logo: the base64 PNG embedded in the mockup is extracted to `public/assets/img/logo.png`.
@@ -76,6 +79,10 @@ Every page in `public/` starts by requiring the bootstrap. The relative path dep
 
 If an account can't place files above `public_html`, the fallback is `Require all denied` `.htaccess` files in `app/`, `config/`, `database/` and `storage/`.
 
+**Web-root guard.** The `../` paths are only safe when the web root sits directly beside `app/`. A subdomain whose document root is nested (e.g. `public_html/staging/`) would put `app/` inside the public web root. So:
+- Every installation (production and staging) gets its own folder with its own `app/`, `config/`, `database/`, `storage/` beside its web root. Staging uses `domains/<staging-subdomain>/public_html`, never a folder inside the production `public_html`.
+- `bootstrap.php` refuses to run (HTTP 500 plus a log line) if its own real path is inside `$_SERVER['DOCUMENT_ROOT']`, unless the config sets `ALLOW_APP_IN_WEBROOT = true` for the `.htaccess` fallback above.
+
 The empty skeleton folders created earlier (`config/`, `includes/`, `auth/`, `booking/`, `documents/`, `assets/`, `database/`, `uploads/`) get reorganized into this layout at the start of Phase 1.
 
 ## 5. Database schema
@@ -84,7 +91,7 @@ All tables use `ENGINE=InnoDB`, `utf8mb4_unicode_ci`, and `DECIMAL(12,2)` for mo
 
 ### `users`
 `id`, `username` (unique), `password_hash`, `role` ENUM('admin','vendor'), `name`, `firm_name`, `rep_name`, `contact`, `status` ENUM('pending','active','disabled'), `must_change_password` TINYINT, `last_login_at`, `created_at`.
-A vendor's firm, rep name and contact live here and are copied onto each booking at save time.
+A vendor's firm, rep name and contact live here and are copied onto each booking at save time. `status` and `must_change_password` are re-read on **every request**, not only at login (Section 10).
 
 ### `login_attempts`
 `id`, `username`, `ip`, `attempted_at`. Indexed on `(username, attempted_at)` and `(ip, attempted_at)`. Used for throttling (Section 9).
@@ -118,12 +125,19 @@ One row per booking/agreement.
 - **Signatures:** `vendor_sign_name`, `vendor_sign_date`, `client_sign_name`, `client_sign_date`.
 - **AO Mess record:** `received_by`, `received_date`, `received_time`.
 
+**Ownership rules** (the mockup overwrote the owner on every save, so a vendor lost access to their own record once an admin re-saved it):
+- `created_by` is written once, on the first INSERT, and is never part of any UPDATE.
+- When a **vendor** creates a booking, the server sets `vendor_id` to that vendor's id; any `vendor_id` in the POST is ignored. Vendors can never change `vendor_id`.
+- Only an **admin** can set or change `vendor_id`: freely on a draft, and only as an amendment on a confirmed booking (Section 8).
+- `updated_by` and `updated_at` are the only "who/when" fields a normal save changes.
+
 The event day of the week is **not stored**; it's calculated from `event_date` when displayed.
 Indexes: `event_date`, `(vendor_id, status)`, `status`, `client_name`, `(venue_id, event_date)`.
 
 ### `booking_line_items`
 `id`, `booking_id` FK (ON DELETE CASCADE, which only fires for draft deletion), `catalog_id` FK (nullable, ON DELETE SET NULL), `section` (same values as the catalog), `label` (**snapshot** of the catalog name), `unit_snapshot` ('fixed','per unit','per head' — **snapshot** of the catalog unit), `is_selected`, `qty`, `rate` (**snapshot**, copied from `default_rate` when the line is added), `amount`, `notes`, `sort_order`.
 Label, unit and rate are all copied when the line is added, so later catalog edits never change an existing booking's lines or totals.
+**When lines are added:** the form shows the booking's existing lines plus every **active** catalog item that isn't on the booking yet (shown unselected, with the catalog's current default rate). A row for such an item is inserted only when it is saved as selected/included; unselected new items are not stored. On a confirmed booking, adding a line follows the amendment rules (ops items excepted). Retired catalog items stay on bookings that already have them but are not offered to new ones.
 **Only `section = 'charge'` rows carry money**; their `amount` is computed server-side from `unit_snapshot` using the rules in Section 6. Decor and ops rows record inclusion, quantity and notes only, matching the references, where those lists have no per-line prices.
 
 ### `payments`
