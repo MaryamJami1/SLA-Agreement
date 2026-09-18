@@ -7,6 +7,9 @@ return [
     // 'local' (XAMPP, http://localhost) or 'production' (Hostinger, HTTPS only).
     'APP_ENV' => 'local',
 
+    // URL path the app is served under: '' for the domain root (Hostinger, local), or e.g. '/portal'.
+    'BASE_URL' => '',
+
     // Database. Local XAMPP MariaDB runs on port 3307 (MySQL80 keeps 3306).
     'DB_HOST' => '127.0.0.1',
     'DB_PORT' => 3307,

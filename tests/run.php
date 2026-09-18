@@ -9,6 +9,7 @@ date_default_timezone_set('Asia/Karachi');
 require __DIR__ . '/../app/helpers.php';
 require __DIR__ . '/../app/money.php';
 require __DIR__ . '/../app/counters.php';
+require __DIR__ . '/../app/auth.php';
 
 $passed = 0;
 $failed = [];
@@ -216,6 +217,53 @@ check('path windows separators', path_is_inside('C:\\site\\public\\app', 'C:/sit
 check('south asian grouping', group_digits_south_asian('1234567'), '12,34,567');
 check('h() escapes', h('<a href="x">\'&'), '&lt;a href=&quot;x&quot;&gt;&#039;&amp;');
 check('h(null)', h(null), '');
+
+// ---------------------------------------------------------------------------
+// Auth: usernames, passwords, device cookie, forced-change allowlist
+// ---------------------------------------------------------------------------
+check('username normalized', normalize_username('  Uzair.Khan '), 'uzair.khan');
+check('username valid', is_valid_username('uzair_6925'), true);
+foreach (['ab', 'has space', 'UPPER', str_repeat('a', 51), 'bad!char', ''] as $bad) {
+    check("username rejects '$bad'", is_valid_username($bad), false);
+}
+
+check('good password', password_problems('correct horse', 'correct horse', 'vendor1'), []);
+check('password too short', count(password_problems('short', 'short', 'vendor1')), 1);
+check('password 10 chars ok', password_problems('abcdefghij', 'abcdefghij', 'vendor1'), []);
+check('password 9 chars rejected', count(password_problems('abcdefghi', 'abcdefghi', 'vendor1')), 1);
+check('password over 72 bytes rejected', count(password_problems(str_repeat('a', 73), str_repeat('a', 73), 'vendor1')), 1);
+check('password 72 bytes ok', password_problems(str_repeat('a', 72), str_repeat('a', 72), 'vendor1'), []);
+check('password mismatch', count(password_problems('abcdefghij', 'abcdefghik', 'vendor1')), 1);
+check('password same as current', count(password_problems('Temp123456', 'Temp123456', 'vendor1', 'Temp123456')), 1);
+check('password same as username', count(password_problems('vendor.name1', 'vendor.name1', 'vendor.name1')), 1);
+check('multibyte chars count as characters', password_problems('پاکستان۱۲۳', 'پاکستان۱۲۳', 'x'), []);
+
+$temp = generate_temp_password();
+check('temp password length', strlen($temp), 12);
+check('temp password alphabet', preg_match('/^[A-HJ-NP-Za-km-np-z2-9]{12}$/', $temp), 1);
+check('temp passwords differ', generate_temp_password() !== generate_temp_password(), true);
+check('temp password passes the rules', password_problems($temp, $temp, 'vendor1'), []);
+
+$secret = str_repeat('k', 64);
+$hash = '$2y$10$abcdefghijklmnopqrstuuM5Cq2eAkHkG7Vw1d2m3n4o5p6q7r8s9t';
+$now = 1790000000;
+$cookie = device_cookie_value(7, $hash, $secret, $now);
+check('device cookie valid', device_cookie_is_valid($cookie, 7, $hash, $secret, $now + 60), true);
+check('device cookie other user', device_cookie_is_valid($cookie, 8, $hash, $secret, $now), false);
+check('device cookie after password change', device_cookie_is_valid($cookie, 7, $hash . 'x', $secret, $now), false);
+check('device cookie wrong secret', device_cookie_is_valid($cookie, 7, $hash, str_repeat('j', 64), $now), false);
+check('device cookie expired after 90 days', device_cookie_is_valid($cookie, 7, $hash, $secret, $now + 91 * 86400), false);
+check('device cookie valid at 89 days', device_cookie_is_valid($cookie, 7, $hash, $secret, $now + 89 * 86400), true);
+check('device cookie tampered', device_cookie_is_valid(substr($cookie, 0, -1) . (substr($cookie, -1) === 'a' ? 'b' : 'a'), 7, $hash, $secret, $now), false);
+check('device cookie issued in the future', device_cookie_is_valid(device_cookie_value(7, $hash, $secret, $now + 3600), 7, $hash, $secret, $now), false);
+check('device cookie garbage', device_cookie_is_valid('7.123.zz', 7, $hash, $secret, $now), false);
+check('device cookie null', device_cookie_is_valid(null, 7, $hash, $secret, $now), false);
+
+check('allowlist change password', is_password_change_allowlisted('/auth/change_password.php'), true);
+check('allowlist logout', is_password_change_allowlisted('/portal/auth/logout.php'), true);
+check('allowlist blocks home', is_password_change_allowlisted('/index.php'), false);
+check('allowlist blocks admin', is_password_change_allowlisted('/admin/vendors.php'), false);
+check('allowlist blocks look-alike', is_password_change_allowlisted('/auth/change_password.php.bak'), false);
 
 // ---------------------------------------------------------------------------
 echo "\n", $passed, ' passed, ', count($failed), " failed\n";

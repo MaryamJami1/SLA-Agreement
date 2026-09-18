@@ -14,8 +14,11 @@ require APP_ROOT . '/app/helpers.php';
 require APP_ROOT . '/app/db.php';
 require APP_ROOT . '/app/money.php';
 require APP_ROOT . '/app/counters.php';
+require APP_ROOT . '/app/audit.php';
+require APP_ROOT . '/app/auth.php';
 
 $config = require APP_ROOT . '/config/config.php';
+$GLOBALS['APP_CONFIG'] = $config;
 if (($config['APP_ENV'] ?? '') === 'production') {
     fwrite(STDERR, "Refusing to run database checks with APP_ENV = production.\n");
     exit(1);
@@ -193,6 +196,89 @@ $draftId = $insertBooking($pdo, 'SLA-TEST-DRAFT');
 $addLine->execute([$draftId, 'charge', 'Venue Charges', 'fixed', 1, null, '1.00']);
 $pdo->exec("DELETE FROM bookings WHERE id = $draftId");
 check('deleting a draft cascades its line items', (int) $pdo->query("SELECT COUNT(*) FROM booking_line_items WHERE booking_id = $draftId")->fetchColumn(), 0);
+
+// ---------------------------------------------------------------------------
+// Login and throttling (plan Section 10)
+// ---------------------------------------------------------------------------
+$makeUser = static function (string $username, string $status, string $password = 'correct-password-1') use ($pdo): int {
+    $pdo->prepare("INSERT INTO users (username, password_hash, role, name, status) VALUES (?, ?, 'vendor', ?, ?)")
+        ->execute([$username, password_hash($password, PASSWORD_DEFAULT), $username, $status]);
+    return (int) $pdo->lastInsertId();
+};
+$attempts = static fn(): int => (int) $pdo->query('SELECT COUNT(*) FROM login_attempts')->fetchColumn();
+$good = 'correct-password-1';
+
+$makeUser('okvendor', 'active');
+$r = attempt_login($pdo, ' OKVendor ', $good, '10.1.1.1', null);
+check('active vendor logs in (username case/space-insensitive)', [$r['error'], $r['user']['username'] ?? null], [null, 'okvendor']);
+check('success recorded as known IP', is_known_ip($pdo, 'okvendor', '10.1.1.1'), true);
+
+$makeUser('pendingvendor', 'pending');
+$r = attempt_login($pdo, 'pendingvendor', $good, '10.1.1.2', null);
+check('pending vendor cannot log in', [$r['user'], strpos((string) $r['error'], 'waiting for approval') !== false], [null, true]);
+$makeUser('disabledvendor', 'disabled');
+$r = attempt_login($pdo, 'disabledvendor', $good, '10.1.1.2', null);
+check('disabled vendor cannot log in', [$r['user'], strpos((string) $r['error'], 'disabled') !== false], [null, true]);
+$r = attempt_login($pdo, 'nobody', 'whatever-pass', '10.1.1.2', null);
+check('unknown username: same message as a wrong password', $r['error'], 'Wrong username or password.');
+
+// Limit 1: 5 failures for one username from one IP → the 6th attempt is refused even with the right password.
+$makeUser('lim1', 'active');
+for ($i = 0; $i < 5; $i++) {
+    attempt_login($pdo, 'lim1', 'wrong-password', '10.2.2.2', null);
+}
+$before = $attempts();
+$r = attempt_login($pdo, 'lim1', $good, '10.2.2.2', null);
+check('limit 1: 6th attempt refused with correct password', [$r['user'], strpos((string) $r['error'], 'Too many failed sign-ins. Try again in') === 0], [null, true]);
+check('limit 1: throttled attempt not added to login_attempts', $attempts(), $before);
+check('limit 1: throttled attempt logged in the audit log',
+    (int) $pdo->query("SELECT COUNT(*) FROM audit_log WHERE action = 'login_fail' AND details LIKE '%\"throttled\"%' AND details LIKE '%lim1%'")->fetchColumn(), 1);
+$r = attempt_login($pdo, 'lim1', $good, '10.2.2.3', null);
+check('limit 1: same username from another IP still works', $r['error'], null);
+
+// Limit 2: 20 failures from one IP (any usernames) → that IP is locked out.
+for ($i = 1; $i <= 20; $i++) {
+    record_login_attempt($pdo, "ghost$i", '10.3.3.3', false);
+}
+$r = attempt_login($pdo, 'okvendor', $good, '10.3.3.3', null);
+check('limit 2: IP with 20 failures is locked out', strpos((string) $r['error'], 'from this network') !== false, true);
+$r = attempt_login($pdo, 'okvendor', $good, '10.3.3.4', null);
+check('limit 2: other IPs unaffected', $r['error'], null);
+
+// Limit 3: 10 failures for one username spread over many IPs → unknown IPs slowed to one attempt per 30 s.
+$lim3Id = $makeUser('lim3', 'active');
+record_login_attempt($pdo, 'lim3', '10.4.0.99', true); // a known IP for lim3
+for ($i = 1; $i <= 10; $i++) { // spread over the last few minutes, as in a real attack
+    $pdo->exec("INSERT INTO login_attempts (username, ip, success, attempted_at) VALUES ('lim3', '10.4.1.$i', 0, NOW() - INTERVAL " . (60 + $i * 10) . " SECOND)");
+}
+$r = attempt_login($pdo, 'lim3', 'wrong-password', '10.4.2.1', null);
+check('limit 3: first attempt from an unknown IP is accepted (and checked)', $r['error'], 'Wrong username or password.');
+$r = attempt_login($pdo, 'lim3', $good, '10.4.2.2', null);
+check('limit 3: next attempt from another unknown IP within 30 s is slowed',
+    [$r['user'], preg_match('/^Too many attempts, try again in \d+ seconds\.$/', (string) $r['error'])], [null, 1]);
+$r = attempt_login($pdo, 'lim3', $good, '10.4.0.99', null);
+check('limit 3: known IP is exempt', $r['error'], null);
+
+$lim3Hash = $pdo->query("SELECT password_hash FROM users WHERE id = $lim3Id")->fetchColumn();
+$deviceCookie = device_cookie_value($lim3Id, $lim3Hash, $config['DEVICE_COOKIE_SECRET'], time() - 60);
+record_login_attempt($pdo, 'lim3', '10.4.2.3', false); // occupy the 30-second slot again
+$r = attempt_login($pdo, 'lim3', $good, '10.4.2.4', $deviceCookie);
+check('limit 3: known device (cookie) is exempt from a new IP', $r['error'], null);
+$r = attempt_login($pdo, 'lim3', $good, '10.4.2.5', $deviceCookie . 'x');
+check('limit 3: tampered device cookie is not exempt', $r['user'], null);
+
+check('limit 3 shows in the admin alert list',
+    in_array('lim3', array_column(login_attack_alerts($pdo), 'username'), true), true);
+check('lim1 (5 failures) is not in the admin alert list',
+    in_array('lim1', array_column(login_attack_alerts($pdo), 'username'), true), false);
+
+// Old login_attempts rows are purged on a successful login.
+$pdo->exec("INSERT INTO login_attempts (username, ip, success, attempted_at) VALUES ('old', '10.9.9.9', 0, NOW() - INTERVAL 91 DAY)");
+attempt_login($pdo, 'okvendor', $good, '10.1.1.1', null);
+check('rows older than 90 days purged', (int) $pdo->query("SELECT COUNT(*) FROM login_attempts WHERE username = 'old'")->fetchColumn(), 0);
+
+// Audit log: login_ok written for successes.
+check('login_ok audited', (int) $pdo->query("SELECT COUNT(*) FROM audit_log WHERE action = 'login_ok'")->fetchColumn() >= 4, true);
 
 // ---------------------------------------------------------------------------
 $server->exec("DROP DATABASE `$testDb`");
