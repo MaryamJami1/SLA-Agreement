@@ -12,6 +12,7 @@ require __DIR__ . '/../app/counters.php';
 require __DIR__ . '/../app/auth.php';
 require __DIR__ . '/../app/bookings.php';
 require __DIR__ . '/../app/lifecycle.php';
+require __DIR__ . '/../app/payments.php';
 
 $passed = 0;
 $failed = [];
@@ -371,6 +372,34 @@ $c = classify_confirmed_changes($oldB, $oldB, [$line('charge', true, true)]);
 check('unchanged line is no change', [$c['line_changes'], $c['changed']], [[], []]);
 
 check('LIKE escape', like_escape('50%_off\\'), '50\\%\\_off\\\\');
+
+// ---------------------------------------------------------------------------
+// Payments
+// ---------------------------------------------------------------------------
+check('payment allowed on draft/confirmed/completed', [payment_kind_allowed('draft', 'payment'), payment_kind_allowed('confirmed', 'payment'), payment_kind_allowed('completed', 'payment')], [true, true, true]);
+check('payment not allowed on cancelled', payment_kind_allowed('cancelled', 'payment'), false);
+check('refund only on cancelled', [payment_kind_allowed('cancelled', 'refund'), payment_kind_allowed('confirmed', 'refund'), payment_kind_allowed('completed', 'refund')], [true, false, false]);
+$today = date('Y-m-d');
+[$pd, $pe] = parse_payment_input(['amount' => 'Rs. 1,00,000', 'paid_on' => $today, 'method' => 'bank_transfer', 'bank_name' => ' HBL ', 'reference_no' => 'TX-1'], 'payment');
+check('valid payment', [$pe, $pd['amount'], $pd['bank_name'], $pd['notes']], [[], '100000.00', 'HBL', null]);
+foreach (['0', '0.00', '-500', 'abc', '', '1e5'] as $bad) {
+    [, $pe] = parse_payment_input(['amount' => $bad, 'paid_on' => $today, 'method' => 'cash'], 'payment');
+    check("payment amount '$bad' rejected", array_keys($pe), ['amount']);
+}
+[, $pe] = parse_payment_input(['amount' => '100', 'paid_on' => date('Y-m-d', strtotime('+1 day')), 'method' => 'cash'], 'payment');
+check('future date rejected', array_keys($pe), ['paid_on']);
+[, $pe] = parse_payment_input(['amount' => '100', 'paid_on' => '2026-02-30', 'method' => 'cash'], 'payment');
+check('invalid date rejected', array_keys($pe), ['paid_on']);
+[, $pe] = parse_payment_input(['amount' => '100', 'paid_on' => $today, 'method' => 'barter'], 'payment');
+check('unknown method rejected', array_keys($pe), ['method']);
+[, $pe] = parse_payment_input(['amount' => '100', 'paid_on' => $today, 'method' => 'cheque'], 'payment');
+check('cheque needs a cheque number', array_keys($pe), ['reference_no']);
+[$pd, $pe] = parse_payment_input(['amount' => '100', 'paid_on' => $today, 'method' => 'cash'], 'refund');
+check('refund kind kept', [$pe, $pd['kind']], [[], 'refund']);
+$_SESSION = [];
+$tok = payment_form_token();
+check('form token usable once', [consume_payment_form_token($tok), consume_payment_form_token($tok)], [true, false]);
+check('unknown form token rejected', consume_payment_form_token('forged'), false);
 
 // ---------------------------------------------------------------------------
 echo "\n", $passed, ' passed, ', count($failed), " failed\n";

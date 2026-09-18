@@ -586,3 +586,20 @@ label.check{display:flex;gap:6px;align-items:flex-start;font-size:.85rem;}
 .amend-panel{background:#F7F1E3;}
 .amend-panel textarea{width:100%;}
 @media print{ .card.lifecycle,.amend-panel{display:none!important;} }
+
+/* Payments (Phase 5) */
+.card.payments{margin-top:18px;}
+.money-summary{display:flex;flex-wrap:wrap;gap:10px 28px;margin:0 0 14px;padding:10px 0;border-top:1px dashed var(--line);border-bottom:1px dashed var(--line);}
+.money-summary div{display:flex;flex-direction:column;}
+.money-summary span{font-family:"Courier New",monospace;font-size:.7rem;color:#5C6459;}
+.money-summary strong{font-size:1rem;color:var(--navy-deep);}
+.money-summary .emph strong{font-size:1.15rem;}
+table.payment-table tr.voided td{color:#8A917F;text-decoration:line-through;}
+table.payment-table tr.voided td:last-child,table.payment-table tr.voided td:last-child *{text-decoration:none;}
+table.payment-table tr.refund td.num{color:var(--danger);}
+.void-form{display:flex;gap:6px;align-items:center;}
+.void-form input{font-size:.78rem;padding:3px 4px;width:150px;border:none;border-bottom:1px solid var(--line);background:transparent;}
+.payment-form{margin-top:16px;padding:12px 14px;border:1px solid var(--line);background:#FBF9F2;}
+.payment-form h4{margin:0 0 8px;font-family:"Courier New",monospace;font-size:.78rem;color:var(--navy);letter-spacing:.04em;}
+.payment-form .grid{margin-bottom:10px;}
+@media print{ .void-form,.payment-form{display:none!important;} }

@@ -18,6 +18,7 @@ require APP_ROOT . '/app/audit.php';
 require APP_ROOT . '/app/auth.php';
 require APP_ROOT . '/app/bookings.php';
 require APP_ROOT . '/app/lifecycle.php';
+require APP_ROOT . '/app/payments.php';
 
 $config = require APP_ROOT . '/config/config.php';
 $GLOBALS['APP_CONFIG'] = $config;
@@ -574,6 +575,118 @@ check('vendor cannot use the confirmed save', $refused(function () use ($pdo, $v
         throw new LifecycleRefused(implode(' ', $e->errors));
     }
 }) !== null, true);
+
+// ---------------------------------------------------------------------------
+// Payments and refunds (Phase 5)
+// ---------------------------------------------------------------------------
+$pay = static function (int $bookingId, string $amount, string $kind = 'payment', string $method = 'cash') use ($pdo, $adminRow): ?string {
+    [$data, $errors] = parse_payment_input(['amount' => $amount, 'paid_on' => date('Y-m-d'), 'method' => $method, 'reference_no' => 'R1'], $kind);
+    if ($errors) {
+        return 'INVALID: ' . implode(' ', $errors);
+    }
+    try {
+        record_payment($pdo, $adminRow, $bookingId, $data);
+        return null;
+    } catch (PaymentRefused $e) {
+        return $e->getMessage();
+    }
+};
+$void = static function (int $bookingId, int $paymentId, string $reason = 'entered twice') use ($pdo, $adminRow): ?string {
+    try {
+        void_payment($pdo, $adminRow, $bookingId, $paymentId, $reason);
+        return null;
+    } catch (PaymentRefused $e) {
+        return $e->getMessage();
+    }
+};
+$money = static fn(int $id): array => array_values(array_intersect_key($bookingRow($id), array_flip(['grand_total', 'paid_total', 'balance'])));
+$lastPayment = static fn(int $id): int => (int) $pdo->query("SELECT MAX(id) FROM payments WHERE booking_id = $id")->fetchColumn();
+
+// Test 7: two installments, void one → balance restored.
+[$P] = $submit($vendorRow, null, null, $basePost('Pay Client', $lawnB, '2027-09-09'));   // Rs. 1,00,000
+$confirmMsg($P['id']);
+$versionBefore = $ver($P['id']);
+check('installment 1', $pay($P['id'], '30,000'), null);
+$first = $lastPayment($P['id']);
+check('installment 2', $pay($P['id'], '20000'), null);
+check('two installments: paid 50,000, balance 50,000', $money($P['id']), ['100000.00', '50000.00', '50000.00']);
+check('payments do not bump the booking version (no false edit conflicts)', $ver($P['id']), $versionBefore);
+check('void installment 1', $void($P['id'], $first), null);
+check('void → balance restored', $money($P['id']), ['100000.00', '20000.00', '80000.00']);
+check('voiding the same payment twice is refused', $void($P['id'], $first), 'This entry has already been voided.');
+check('void needs a reason', $void($P['id'], $lastPayment($P['id']), '  '), 'Enter the reason for voiding this entry.');
+check('void of another booking\'s payment is refused', $void($A['id'], $lastPayment($P['id'])), 'That payment entry doesn\'t belong to this booking.');
+check('payment_add and payment_void audited',
+    $pdo->query("SELECT GROUP_CONCAT(action ORDER BY id) FROM audit_log WHERE booking_id = {$P['id']} AND action LIKE 'payment%'")->fetchColumn(),
+    'payment_add,payment_add,payment_void');
+
+// Overpayment shows a negative balance; refunds refused outside cancelled bookings.
+check('overpay by 1,000', $pay($P['id'], '81000'), null);
+check('overpaid → negative balance', $money($P['id'])[2], '-1000.00');
+check('refund on a confirmed booking refused', $pay($P['id'], '1000', 'refund'), 'Refunds can be recorded only on a cancelled booking.');
+
+// Zero / negative / invalid amounts never reach the database.
+$count = static fn(int $id): int => (int) $pdo->query("SELECT COUNT(*) FROM payments WHERE booking_id = $id")->fetchColumn();
+$n = $count($P['id']);
+check('zero payment rejected', strpos((string) $pay($P['id'], '0'), 'INVALID') === 0, true);
+check('negative payment rejected', strpos((string) $pay($P['id'], '-500'), 'INVALID') === 0, true);
+check('cheque without a number rejected', strpos((string) (function () use ($pdo, $adminRow, $P) {
+    [, $e] = parse_payment_input(['amount' => '10', 'paid_on' => date('Y-m-d'), 'method' => 'cheque'], 'payment');
+    return implode(' ', $e);
+})(), 'Cheque number') !== false, true);
+check('nothing written for rejected amounts', $count($P['id']), $n);
+
+// Forced error before commit (audit insert fails): no payment row, no audit row, balance unchanged.
+$before = [$count($P['id']), $money($P['id'])];
+$pdo->exec('RENAME TABLE audit_log TO audit_log_off');
+$forced = null;
+try {
+    record_payment($pdo, $adminRow, $P['id'], parse_payment_input(['amount' => '5000', 'paid_on' => date('Y-m-d'), 'method' => 'cash'], 'payment')[0]);
+} catch (PDOException $e) {
+    $forced = 'rolled back';
+}
+$pdo->exec('RENAME TABLE audit_log_off TO audit_log');
+check('forced error before commit rolls everything back', [$forced, $count($P['id']), $money($P['id'])], ['rolled back', $before[0], $before[1]]);
+
+// Cancelled booking: payments refused, refunds capped (tests 20, 21, 23, 32).
+[$R] = $submit($vendorRow, null, null, $basePost('Refund Client', $lawnB, '2027-10-10') + ['refund_pct_30' => '50']);
+$pdo->exec("UPDATE bookings SET per_head_rate = 5000.00 WHERE id = {$R['id']}");  // Rs. 5,00,000
+db_transaction(fn(PDO $p) => recompute_booking_totals($p, $R['id']), $pdo);
+check('1,00,000 paid', $pay($R['id'], '1,00,000'), null);
+$paymentR = $lastPayment($R['id']);
+cancel_booking($pdo, $adminRow, $R['id'], $ver($R['id']), 'Client cancelled');
+check('cancelled: balance 0, retained 1,00,000', $money($R['id']), ['500000.00', '100000.00', '0.00']);
+check('payment on a cancelled booking refused', $pay($R['id'], '10'), 'Payments can\'t be recorded on a cancelled booking.');
+$n = $count($R['id']);
+$auditN = (int) $pdo->query("SELECT COUNT(*) FROM audit_log WHERE booking_id = {$R['id']}")->fetchColumn();
+check('refund above the refundable amount refused (test 20)', $pay($R['id'], '1,00,001', 'refund'), 'Refund exceeds the refundable amount (Rs. 1,00,000).');
+check('refused refund wrote nothing', [$count($R['id']), $money($R['id'])[1],
+    (int) $pdo->query("SELECT COUNT(*) FROM audit_log WHERE booking_id = {$R['id']}")->fetchColumn()], [$n, '100000.00', $auditN]);
+check('refund 40,000 (test 23)', $pay($R['id'], '40000', 'refund'), null);
+check('amount retained 60,000, balance still 0 (tests 23, 32)', $money($R['id']), ['500000.00', '60000.00', '0.00']);
+check('second refund capped at 60,000', $pay($R['id'], '60,000.01', 'refund'), 'Refund exceeds the refundable amount (Rs. 60,000).');
+check('refund the rest', $pay($R['id'], '60000', 'refund'), null);
+check('fully refunded', $money($R['id']), ['500000.00', '0.00', '0.00']);
+check('voiding the refunded payment refused (test 21)', $void($R['id'], $paymentR),
+    'Void the related refunds first — voiding this payment would leave refunds greater than payments.');
+check('payment still not voided', $pdo->query("SELECT voided_at FROM payments WHERE id = $paymentR")->fetchColumn(), null);
+$refundIds = $pdo->query("SELECT id FROM payments WHERE booking_id = {$R['id']} AND kind = 'refund'")->fetchAll(PDO::FETCH_COLUMN);
+foreach ($refundIds as $rid) {
+    $void($R['id'], (int) $rid, 'refund reversed');
+}
+check('after voiding the refunds, the payment can be voided', $void($R['id'], $paymentR), null);
+check('everything voided: retained 0', $money($R['id']), ['500000.00', '0.00', '0.00']);
+
+// Refund suggestion for this booking (50% policy, 30+ days before the event).
+$sug = refund_suggestion('2027-10-10', date('Y-m-d'), 5000, null, 10000000, 4000000, 6000000);
+check('policy suggestion after a Rs. 40,000 refund: 50,000 − 40,000', $sug['amount'], 1000000);
+
+// Completed bookings accept payments (and voids), not refunds.
+$pdo->exec("UPDATE bookings SET event_date = CURDATE() - INTERVAL 1 DAY, version = version + 1 WHERE id = {$P['id']}");
+complete_booking($pdo, $adminRow, $P['id'], $ver($P['id']), true);
+check('payment on a completed booking allowed', $pay($P['id'], '500'), null);
+check('void on a completed booking allowed', $void($P['id'], $lastPayment($P['id'])), null);
+check('refund on a completed booking refused', $pay($P['id'], '500', 'refund'), 'Refunds can be recorded only on a cancelled booking.');
 
 // ---------------------------------------------------------------------------
 $server->exec("DROP DATABASE `$testDb`");
