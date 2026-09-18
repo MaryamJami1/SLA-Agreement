@@ -19,6 +19,7 @@ $flashes = session_status() === PHP_SESSION_ACTIVE ? take_flashes() : [];
 $tabs = [];
 if ($viewer !== null && (int) $viewer['must_change_password'] !== 1) {
     $tabs['home'] = ['index.php', 'Home'];
+    $tabs['new'] = ['booking/form.php', 'New Booking'];
     if ($viewer['role'] === 'admin') {
         $tabs['vendors'] = ['admin/vendors.php', 'Vendors'];
     }
