@@ -70,9 +70,10 @@ project/
     audit.php
     views/      layout_top.php  layout_bottom.php
   config/       config.sample.php  config.php (real credentials, never committed)
-  database/     schema.sql  seed.sql  migrations/001_initial.sql
+  database/     schema.sql (= schema version 1)  seed.sql  migrations/ (README; 002_… onwards after launch)
   storage/      uploads/  logs/  sessions/
   tests/        run.php                -> plain-PHP tests for pure functions
+                db_check.php           -> local-only checks against a throwaway <DB_NAME>_test database
 ```
 
 Every page in `public/` starts by requiring the bootstrap. The relative path depends on how deep the file sits (the depths are the same after upload to `public_html`):
