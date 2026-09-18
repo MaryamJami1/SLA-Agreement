@@ -48,8 +48,9 @@ req a POST /auth/change_password.php "_csrf=$TOKEN" "current_password=ChangeMe-2
 contains "at least 10 characters" "short password rejected"
 req a POST /auth/change_password.php "_csrf=$TOKEN" "current_password=ChangeMe-2026" "new_password=AdminPass-2026" "new_password_confirm=AdminPass-2026"
 expect "$CODE $LOC" "303 /index.php" "valid change accepted"
-req a GET /;                         expect "$CODE" "200" "home opens after the change"
-contains "Welcome, AO Mess Administrator" "admin sees the home page"
+req a GET /;                         expect "$CODE $LOC" "303 /booking/list.php" "home now goes to the registry"
+req a GET /booking/list.php;         expect "$CODE" "200" "registry opens after the change"
+contains "No bookings yet" "admin sees the (empty) registry"
 
 echo "== Checkpoint 2: a pending vendor can't log in"
 csrf v /auth/register.php
@@ -71,7 +72,7 @@ req a GET /admin/vendors.php; contains "is now active" "vendor approved"
 csrf v /auth/login.php
 req v POST /auth/login.php "_csrf=$TOKEN" "username=uzair.k" "password=VendorPass-01"
 expect "$CODE $LOC" "303 /index.php" "approved vendor signs in"
-req v GET /;                  contains "Welcome, Uzair Khan" "vendor home page"
+req v GET /booking/list.php;  contains "Uzair Khan" "vendor sees the registry"
 req v GET /admin/vendors.php; expect "$CODE" "404" "vendor gets 404 on the admin page"
 
 echo "== Disabling signs the vendor out on the next click"
@@ -98,7 +99,7 @@ AUD=$($MYSQL -e "SELECT COUNT(*) FROM audit_log WHERE details LIKE '%$TEMP%'")
 expect "$AUD" "0" "temporary password never written to the audit log"
 
 echo "== Sign out"
-csrf a /
+csrf a /booking/list.php
 req a POST /auth/logout.php "_csrf=$TOKEN"; expect "$CODE $LOC" "303 /auth/login.php" "sign out"
 req a GET /;                                 expect "$CODE $LOC" "303 /auth/login.php" "signed-out session can't open pages"
 

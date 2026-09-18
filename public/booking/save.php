@@ -3,6 +3,7 @@ declare(strict_types=1);
 require __DIR__ . '/../../app/bootstrap.php';
 require_once APP_ROOT . '/app/bookings.php';
 require_once APP_ROOT . '/app/views/form_helpers.php';
+require_once APP_ROOT . '/app/lifecycle.php';
 
 require_post();
 $viewer = require_login();
@@ -13,12 +14,10 @@ $version = ctype_digit((string) ($_POST['version'] ?? '')) ? (int) $_POST['versi
 
 $booking = null;
 if ($id !== null) {
+    // Vendors: own drafts only. Admin: drafts, and confirmed bookings (direct edits / amendments).
     $booking = load_booking_for_user($pdo, $id, $viewer, 'edit');
-    if ($booking['status'] !== 'draft') {
-        flash('error', 'This booking is ' . $booking['status'] . ' and can no longer be edited here.');
-        redirect('booking/form.php?id=' . $id);
-    }
 }
+$confirmed = $booking !== null && $booking['status'] === 'confirmed';
 
 $formLines = booking_form_lines($pdo, $id);
 $parsed = parse_booking_input($pdo, $_POST, $viewer, $booking, $formLines);
@@ -27,6 +26,15 @@ $conflict = false;
 
 if (!$errors) {
     try {
+        if ($confirmed) {
+            $saved = save_booking_confirmed($pdo, $viewer, $id, (int) $version, $parsed['fields'], $parsed['lines'],
+                $_POST['amend_reason'] ?? '', $_POST['override_reason'] ?? '');
+            flash('ok', !$saved['changed'] ? 'No changes to save.'
+                : ($saved['amended']
+                    ? "{$saved['unique_id']} amended: it is now Rev {$saved['revision']}. The signatures were cleared; the amended agreement must be signed again."
+                    : "Saved {$saved['unique_id']} (no change to the agreed terms)."));
+            redirect('booking/form.php?id=' . $saved['id']);
+        }
         $saved = save_booking_draft($pdo, $viewer, $id, $version, $parsed['fields'], $parsed['lines']);
         flash('ok', ($id === null ? 'Booking created: ' : 'Saved ') . $saved['unique_id'] . '.');
         // Post/Redirect/Get: a refresh can't submit (or create) the booking twice.
@@ -49,6 +57,8 @@ $values['vendor_id'] = is_string($_POST['vendor_id'] ?? null) ? $_POST['vendor_i
 $values['venue_id'] = is_string($_POST['venue_id'] ?? null) && $_POST['venue_id'] !== 'other' ? $_POST['venue_id'] : '';
 $values['venue_other'] = ($_POST['venue_id'] ?? '') === 'other' ? (string) ($_POST['venue_other'] ?? '') : '';
 $values['version'] = $version;
+$values['amend_reason'] = is_string($_POST['amend_reason'] ?? null) ? $_POST['amend_reason'] : '';
+$values['override_reason'] = is_string($_POST['override_reason'] ?? null) ? $_POST['override_reason'] : '';
 if ($viewer['role'] === 'vendor') {
     $values['firm_name'] = $viewer['firm_name'];
     $values['rep_name'] = $viewer['rep_name'];

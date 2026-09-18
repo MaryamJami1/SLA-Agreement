@@ -135,6 +135,12 @@ function parse_whole_number($raw, int $max = WHOLE_NUMBER_MAX): ?int
     return (int) $s;
 }
 
+/** Escape % _ and \ so user text is matched literally inside a LIKE pattern. */
+function like_escape(string $s): string
+{
+    return addcslashes($s, '%_\\');
+}
+
 /** Group a string of digits the South Asian way: 1234567 → 12,34,567. */
 function group_digits_south_asian(string $digits): string
 {

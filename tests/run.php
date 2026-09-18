@@ -11,6 +11,7 @@ require __DIR__ . '/../app/money.php';
 require __DIR__ . '/../app/counters.php';
 require __DIR__ . '/../app/auth.php';
 require __DIR__ . '/../app/bookings.php';
+require __DIR__ . '/../app/lifecycle.php';
 
 $passed = 0;
 $failed = [];
@@ -346,6 +347,30 @@ check('no posted lines → no changes', $pl, []);
 
 check('field diff', booking_field_diff(['guests' => 250, 'discount' => '0.00', 'theme' => null, 'setup_time' => '18:00:00'],
     ['guests' => 300, 'discount' => '0.00', 'theme' => null, 'setup_time' => '18:00:00']), ['guests' => [250, 300]]);
+
+// ---------------------------------------------------------------------------
+// Confirmed bookings: direct edit vs amendment
+// ---------------------------------------------------------------------------
+$oldB = ['client_contact' => '0300', 'guests' => 200, 'client_company' => null, 'vendor_sign_name' => 'Uzair', 'decor_by' => null];
+$line = static fn(string $section, bool $was, bool $now) => ['line_id' => 7, 'section' => $section, 'label' => 'X', 'selected' => $was,
+    'qty' => null, 'rate' => null, 'notes' => null, 'new' => ['selected' => $now, 'qty' => null, 'rate' => null, 'notes' => null]];
+
+$c = classify_confirmed_changes($oldB, ['client_contact' => '0311'] + $oldB, []);
+check('contact change is a direct edit', [array_keys($c['changed']), $c['amendment_fields']], [['client_contact'], []]);
+$c = classify_confirmed_changes($oldB, ['vendor_sign_name' => 'U. Khan', 'decor_by' => 'In-house'] + $oldB, []);
+check('signature and decor-by are direct edits', $c['amendment_fields'], []);
+$c = classify_confirmed_changes($oldB, ['guests' => 250, 'client_contact' => '0311'] + $oldB, []);
+check('mixed save counts as an amendment', array_keys($c['amendment_fields']), ['guests']);
+$c = classify_confirmed_changes($oldB, ['client_company' => 'ACME'] + $oldB, []);
+check('company is an amendment field', array_keys($c['amendment_fields']), ['client_company']);
+$c = classify_confirmed_changes($oldB, $oldB, [$line('ops_item', false, true)]);
+check('ops item change is a direct edit', [count($c['line_changes']), $c['amendment_lines']], [1, []]);
+$c = classify_confirmed_changes($oldB, $oldB, [$line('decor_light', false, true)]);
+check('decor checklist change is an amendment', count($c['amendment_lines']), 1);
+$c = classify_confirmed_changes($oldB, $oldB, [$line('charge', true, true)]);
+check('unchanged line is no change', [$c['line_changes'], $c['changed']], [[], []]);
+
+check('LIKE escape', like_escape('50%_off\\'), '50\\%\\_off\\\\');
 
 // ---------------------------------------------------------------------------
 echo "\n", $passed, ' passed, ', count($failed), " failed\n";
