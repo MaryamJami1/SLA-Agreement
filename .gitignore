@@ -1,9 +1,8 @@
 # Real credentials (config.sample.php is committed instead)
 config/config.php
 
-# Runtime data
+# Runtime data (folders are kept with .gitkeep)
 storage/uploads/*
 storage/logs/*
 storage/sessions/*
-uploads/*
 !**/.gitkeep
