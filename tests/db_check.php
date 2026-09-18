@@ -1,0 +1,204 @@
+<?php
+/**
+ * Database checks against a real server (local dev only; never run on Hostinger).
+ * Builds a throwaway database "<DB_NAME>_test" from database/schema.sql + seed.sql,
+ * runs the checks, then drops it.
+ *
+ * Run:  php tests/db_check.php        Exit code 0 = all passed.
+ */
+declare(strict_types=1);
+
+define('APP_ROOT', dirname(__DIR__));
+date_default_timezone_set('Asia/Karachi');
+require APP_ROOT . '/app/helpers.php';
+require APP_ROOT . '/app/db.php';
+require APP_ROOT . '/app/money.php';
+require APP_ROOT . '/app/counters.php';
+
+$config = require APP_ROOT . '/config/config.php';
+if (($config['APP_ENV'] ?? '') === 'production') {
+    fwrite(STDERR, "Refusing to run database checks with APP_ENV = production.\n");
+    exit(1);
+}
+$testDb = $config['DB_NAME'] . '_test';
+
+$passed = 0;
+$failed = [];
+function check(string $name, $actual, $expected): void
+{
+    global $passed, $failed;
+    if ($actual === $expected) {
+        $passed++;
+    } else {
+        $failed[] = "$name\n    expected: " . var_export($expected, true) . "\n    actual:   " . var_export($actual, true);
+    }
+}
+function check_fails(string $name, callable $fn): void
+{
+    try {
+        $fn();
+        check("$name (should fail)", 'succeeded', 'PDOException');
+    } catch (PDOException $e) {
+        check($name, true, true);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Fresh test database from schema.sql + seed.sql
+// ---------------------------------------------------------------------------
+$server = new PDO(sprintf('mysql:host=%s;port=%d;charset=utf8mb4', $config['DB_HOST'], $config['DB_PORT']),
+    $config['DB_USER'], $config['DB_PASS'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$server->exec("DROP DATABASE IF EXISTS `$testDb`");
+$server->exec("CREATE DATABASE `$testDb` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+
+$pdo = db_connect(['DB_NAME' => $testDb] + $config);
+foreach (['schema.sql', 'seed.sql'] as $file) {
+    $sql = file_get_contents(APP_ROOT . '/database/' . $file);
+    foreach (preg_split('/;\s*\n/', $sql) as $statement) {
+        $body = trim(preg_replace('/^\s*--.*$/m', '', $statement));
+        if ($body !== '') {
+            $pdo->exec($body);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Schema and seed
+// ---------------------------------------------------------------------------
+$tables = $pdo->query("SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()")
+    ->fetchAll(PDO::FETCH_COLUMN);
+sort($tables, SORT_STRING);
+check('all 11 tables exist', $tables, ['attachments', 'audit_log', 'booking_line_items', 'bookings', 'counters',
+    'item_catalog', 'login_attempts', 'payments', 'schema_version', 'users', 'venues']);
+check('all tables InnoDB', (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND engine <> 'InnoDB'")->fetchColumn(), 0);
+check('schema_version = 1', (int) $pdo->query('SELECT MAX(version) FROM schema_version')->fetchColumn(), 1);
+
+$admin = $pdo->query("SELECT * FROM users WHERE username = 'admin'")->fetch();
+check('seeded admin is active admin', [$admin['role'], $admin['status']], ['admin', 'active']);
+check('seeded admin must change password', (int) $admin['must_change_password'], 1);
+check('seeded admin password is ChangeMe-2026', password_verify('ChangeMe-2026', $admin['password_hash']), true);
+check('5 venues', (int) $pdo->query('SELECT COUNT(*) FROM venues')->fetchColumn(), 5);
+check('8 charges', (int) $pdo->query("SELECT COUNT(*) FROM item_catalog WHERE section = 'charge'")->fetchColumn(), 8);
+check('21 decor items', (int) $pdo->query("SELECT COUNT(*) FROM item_catalog WHERE section LIKE 'decor%'")->fetchColumn(), 21);
+check('10 ops items', (int) $pdo->query("SELECT COUNT(*) FROM item_catalog WHERE section = 'ops_item'")->fetchColumn(), 10);
+check('connection time zone +05:00', $pdo->query('SELECT @@session.time_zone')->fetchColumn(), '+05:00');
+
+// ---------------------------------------------------------------------------
+// SLA numbers: first is 0001, no gap after a rolled-back save
+// ---------------------------------------------------------------------------
+$year = (int) date('Y');
+$adminId = (int) $admin['id'];
+$insertBooking = static function (PDO $pdo, string $uid) use ($adminId): int {
+    $pdo->prepare('INSERT INTO bookings (unique_id, created_by, updated_by, client_name) VALUES (?, ?, ?, ?)')
+        ->execute([$uid, $adminId, $adminId, 'Test Client']);
+    return (int) $pdo->lastInsertId();
+};
+
+$first = db_transaction(static function (PDO $pdo) use ($year, $insertBooking) {
+    $uid = next_sla_id($pdo, $year);
+    $insertBooking($pdo, $uid);
+    return $uid;
+}, $pdo);
+check('first ID of the year', $first, format_sla_id($year, 1));
+
+$second = db_transaction(static fn(PDO $pdo) => [$uid = next_sla_id($pdo, $year), $insertBooking($pdo, $uid)][0], $pdo);
+check('second ID', $second, format_sla_id($year, 2));
+
+try {
+    db_transaction(static function (PDO $pdo) use ($year, $insertBooking) {
+        $insertBooking($pdo, next_sla_id($pdo, $year));
+        throw new RuntimeException('forced save error');
+    }, $pdo);
+} catch (RuntimeException $e) {
+}
+$third = db_transaction(static fn(PDO $pdo) => [$uid = next_sla_id($pdo, $year), $insertBooking($pdo, $uid)][0], $pdo);
+check('no gap after a failed save', $third, format_sla_id($year, 3));
+check('failed save left no booking', (int) $pdo->query('SELECT COUNT(*) FROM bookings')->fetchColumn(), 3);
+
+$other = db_transaction(static fn(PDO $pdo) => next_sla_id($pdo, 2031), $pdo);
+check('new year starts at 0001', $other, 'SLA-2031-0001');
+
+try {
+    next_sla_id($pdo, $year);
+    check('next_sla_id outside a transaction', 'allowed', 'LogicException');
+} catch (LogicException $e) {
+    check('next_sla_id outside a transaction is refused', true, true);
+}
+
+// ---------------------------------------------------------------------------
+// recompute_booking_totals against real rows
+// ---------------------------------------------------------------------------
+$bookingId = (int) $pdo->query("SELECT id FROM bookings WHERE unique_id = " . $pdo->quote($first))->fetchColumn();
+$pdo->prepare('UPDATE bookings SET per_head_rate = ?, guests = ?, discount = ? WHERE id = ?')
+    ->execute(['1500.00', 250, '10000.00', $bookingId]);
+$addLine = $pdo->prepare('INSERT INTO booking_line_items (booking_id, section, label, unit_snapshot, is_selected, qty, rate)
+                          VALUES (?, ?, ?, ?, ?, ?, ?)');
+$addLine->execute([$bookingId, 'charge', 'Venue Charges', 'fixed', 1, null, '50000.00']);
+$addLine->execute([$bookingId, 'charge', 'Drinks', 'per head', 1, null, '85.00']);
+$addLine->execute([$bookingId, 'charge', 'Stage', 'per unit', 1, 2, '10000.00']);
+$addLine->execute([$bookingId, 'charge', 'Valet', 'fixed', 0, null, '9999.00']);
+$addLine->execute([$bookingId, 'decor_general', 'Lounges', 'fixed', 1, null, null]);
+$addPayment = $pdo->prepare('INSERT INTO payments (booking_id, kind, amount, paid_on, method, recorded_by, voided_at)
+                             VALUES (?, ?, ?, CURDATE(), ?, ?, ?)');
+$addPayment->execute([$bookingId, 'payment', '100000.00', 'cash', $adminId, null]);
+$addPayment->execute([$bookingId, 'payment', '50000.00', 'cash', $adminId, date('Y-m-d H:i:s')]);
+$addPayment->execute([$bookingId, 'payment', '20000.00', 'bank_transfer', $adminId, null]);
+
+$readTotals = static function () use ($pdo, $bookingId): array {
+    return $pdo->query("SELECT guest_charges, charges_total, sub_total, grand_total, paid_total, balance FROM bookings WHERE id = $bookingId")
+        ->fetch(PDO::FETCH_NUM);
+};
+db_transaction(static function (PDO $pdo) use ($bookingId) {
+    $pdo->query("SELECT id FROM bookings WHERE id = $bookingId FOR UPDATE");
+    recompute_booking_totals($pdo, $bookingId);
+}, $pdo);
+check('stored totals', $readTotals(), ['375000.00', '91250.00', '466250.00', '456250.00', '120000.00', '336250.00']);
+check('stored line amounts', $pdo->query("SELECT label, amount FROM booking_line_items WHERE booking_id = $bookingId ORDER BY id")->fetchAll(PDO::FETCH_KEY_PAIR),
+    ['Venue Charges' => '50000.00', 'Drinks' => '21250.00', 'Stage' => '20000.00', 'Valet' => '0.00', 'Lounges' => '0.00']);
+
+// Guests 250 → 300: guest charges and the per-head line recompute; fixed and per-unit lines don't.
+$pdo->exec("UPDATE bookings SET guests = 300 WHERE id = $bookingId");
+db_transaction(static fn(PDO $pdo) => recompute_booking_totals($pdo, $bookingId), $pdo);
+check('guests change: guest charges', $readTotals()[0], '450000.00');
+check('guests change: per-head line only', $pdo->query("SELECT label, amount FROM booking_line_items WHERE booking_id = $bookingId AND section = 'charge' ORDER BY id")->fetchAll(PDO::FETCH_KEY_PAIR),
+    ['Venue Charges' => '50000.00', 'Drinks' => '25500.00', 'Stage' => '20000.00', 'Valet' => '0.00']);
+
+// Cancelled: balance forced to 0, grand total kept.
+$pdo->exec("UPDATE bookings SET status = 'cancelled' WHERE id = $bookingId");
+db_transaction(static fn(PDO $pdo) => recompute_booking_totals($pdo, $bookingId), $pdo);
+[, , , $grand, $paid, $balance] = $readTotals();
+check('cancelled: balance 0, grand total and amount retained kept', [$grand, $paid, $balance], ['535500.00', '120000.00', '0.00']);
+
+try {
+    recompute_booking_totals($pdo, $bookingId);
+    check('recompute outside a transaction', 'allowed', 'LogicException');
+} catch (LogicException $e) {
+    check('recompute outside a transaction is refused', true, true);
+}
+
+// ---------------------------------------------------------------------------
+// Constraints and strict mode
+// ---------------------------------------------------------------------------
+$venueId = (int) $pdo->query('SELECT id FROM venues ORDER BY id LIMIT 1')->fetchColumn();
+$pdo->exec("UPDATE bookings SET venue_id = $venueId WHERE id = $bookingId");
+check_fails('venue used by a booking cannot be deleted (RESTRICT)', fn() => $pdo->exec("DELETE FROM venues WHERE id = $venueId"));
+check_fails('booking with payments cannot be deleted (RESTRICT)', fn() => $pdo->exec("DELETE FROM bookings WHERE id = $bookingId"));
+check_fails('strict mode rejects negative guests', fn() => $pdo->exec("UPDATE bookings SET guests = -1 WHERE id = $bookingId"));
+check_fails('strict mode rejects an amount too large for DECIMAL(12,2)', fn() => $pdo->exec("UPDATE bookings SET discount = 10000000000.00 WHERE id = $bookingId"));
+check_fails('duplicate SLA number rejected', fn() => $insertBooking($pdo, $first));
+check_fails('unknown audit action rejected', fn() => $pdo->exec("INSERT INTO audit_log (action) VALUES ('edit_audit')"));
+
+// Draft deletion cascades line items (the only cascade).
+$draftId = $insertBooking($pdo, 'SLA-TEST-DRAFT');
+$addLine->execute([$draftId, 'charge', 'Venue Charges', 'fixed', 1, null, '1.00']);
+$pdo->exec("DELETE FROM bookings WHERE id = $draftId");
+check('deleting a draft cascades its line items', (int) $pdo->query("SELECT COUNT(*) FROM booking_line_items WHERE booking_id = $draftId")->fetchColumn(), 0);
+
+// ---------------------------------------------------------------------------
+$server->exec("DROP DATABASE `$testDb`");
+
+echo "\n", $passed, ' passed, ', count($failed), " failed\n";
+foreach ($failed as $f) {
+    echo "\nFAIL: $f\n";
+}
+exit($failed ? 1 : 0);
