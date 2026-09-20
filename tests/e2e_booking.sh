@@ -86,12 +86,12 @@ login o bilal Passw0rd-e2e
 req o GET "/booking/form.php?id=$ID";  expect "$CODE" "404" "another vendor gets 404 on the form"
 csrf o /booking/form.php
 req o POST /booking/save.php "_csrf=$TOKEN" "id=$ID" "version=2" "client_name=Hijack"; expect "$CODE" "404" "another vendor gets 404 on save"
-req o GET /; lacks "Ayesha" "another vendor's home page doesn't list it"
+req o GET /booking/list.php; lacks "Ayesha" "another vendor's registry doesn't list it"
 req o GET "/booking/form.php?id=999999"; expect "$CODE" "404" "missing booking is the same 404"
 login a admin Passw0rd-e2e
 req a GET "/booking/form.php?id=$ID"; expect "$CODE" "200" "admin opens any booking"
 contains "Uzair Caterers — Uzair Khan (uzair)" "admin sees the vendor dropdown"
-req a GET /; contains "SLA-$YEAR-0001" "admin home lists the booking"
+req a GET /booking/list.php; contains "SLA-$YEAR-0001" "admin registry lists the booking"
 
 echo "== Venue warning (drafts only warn)"
 csrf a /booking/form.php

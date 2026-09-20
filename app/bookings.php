@@ -474,11 +474,8 @@ function save_booking_draft(PDO $pdo, array $user, ?int $bookingId, ?int $versio
             if (!$vendor) {
                 throw new BookingValidationError(['vendor_id' => 'Vendor: choose an active, approved vendor.']);
             }
-            // Blank snapshot fields are filled from the vendor's profile; typed values override it.
-            $fields['firm_name'] = $fields['firm_name'] ?? $vendor['firm_name'];
-            $fields['rep_name'] = $fields['rep_name'] ?? $vendor['rep_name'];
-            $fields['rep_contact'] = $fields['rep_contact'] ?? $vendor['contact'];
         }
+        $fields = fill_vendor_snapshot($pdo, $fields);
 
         // Cross-field money checks on the final line set, before anything is written.
         $chargeLines = [];
@@ -527,6 +524,26 @@ function save_booking_draft(PDO $pdo, array $user, ?int $bookingId, ?int $versio
     }, $pdo);
 }
 
+/**
+ * Blank firm / representative / contact snapshot fields are filled from the assigned vendor's profile;
+ * values the admin typed are kept (plan Section 5: copied from the profile, the admin can override).
+ */
+function fill_vendor_snapshot(PDO $pdo, array $fields): array
+{
+    if ($fields['vendor_id'] === null
+        || ($fields['firm_name'] !== null && $fields['rep_name'] !== null && $fields['rep_contact'] !== null)) {
+        return $fields;
+    }
+    $st = $pdo->prepare('SELECT firm_name, rep_name, contact FROM users WHERE id = ?');
+    $st->execute([$fields['vendor_id']]);
+    if ($vendor = $st->fetch()) {
+        $fields['firm_name'] = $fields['firm_name'] ?? $vendor['firm_name'];
+        $fields['rep_name'] = $fields['rep_name'] ?? $vendor['rep_name'];
+        $fields['rep_contact'] = $fields['rep_contact'] ?? $vendor['contact'];
+    }
+    return $fields;
+}
+
 /** Charge lines as they will be after this save (existing rows merged with the posted changes). */
 function booking_final_charge_lines(PDO $pdo, ?int $bookingId, array $lines): array
 {
@@ -560,24 +577,38 @@ function write_booking_lines(PDO $pdo, int $bookingId, array $lines): array
     $insert = $pdo->prepare('INSERT INTO booking_line_items (booking_id, catalog_id, section, label, unit_snapshot, is_selected, qty, rate, notes, sort_order)
                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     foreach ($lines as $line) {
+        $change = booking_line_change($line);
+        if ($change === null) {
+            continue;
+        }
         $new = $line['new'];
-        $isCharge = $line['section'] === 'charge';
-        $rate = $isCharge ? $new['rate'] : null;
+        $rate = $line['section'] === 'charge' ? $new['rate'] : null;
         if ($line['line_id'] === null) {
             $insert->execute([$bookingId, $line['catalog_id'], $line['section'], $line['label'], $line['unit'],
                 $new['selected'] ? 1 : 0, $new['qty'], $rate, $new['notes'], $line['sort_order']]);
-            $changes[] = ['added' => $line['label'], 'section' => $line['section'], 'rate' => $rate, 'qty' => $new['qty']];
-            continue;
-        }
-        $before = ['selected' => (bool) $line['selected'], 'qty' => $line['qty'] === null ? null : (int) $line['qty'],
-            'rate' => $line['rate'], 'notes' => $line['notes']];
-        $after = ['selected' => $new['selected'], 'qty' => $new['qty'], 'rate' => $rate, 'notes' => $new['notes']];
-        if ($before != $after) {
+        } else {
             $update->execute([$new['selected'] ? 1 : 0, $new['qty'], $rate, $new['notes'], $line['line_id'], $bookingId]);
-            $changes[] = ['line' => $line['label'], 'from' => $before, 'to' => $after];
         }
+        $changes[] = $change;
     }
     return $changes;
+}
+
+/**
+ * What a parsed line would change, for the audit log and for classifying amendments; null if nothing.
+ * A newly ticked catalog item is always a change.
+ */
+function booking_line_change(array $line): ?array
+{
+    $new = $line['new'];
+    $rate = $line['section'] === 'charge' ? $new['rate'] : null;
+    if ($line['line_id'] === null) {
+        return ['added' => $line['label'], 'section' => $line['section'], 'rate' => $rate, 'qty' => $new['qty']];
+    }
+    $before = ['selected' => (bool) $line['selected'], 'qty' => $line['qty'] === null ? null : (int) $line['qty'],
+        'rate' => $line['rate'], 'notes' => $line['notes']];
+    $after = ['selected' => $new['selected'], 'qty' => $new['qty'], 'rate' => $rate, 'notes' => $new['notes']];
+    return $before == $after ? null : ['line' => $line['label'], 'section' => $line['section'], 'from' => $before, 'to' => $after];
 }
 
 /** Changed fields as [field => [old, new]], comparing database values as strings. */

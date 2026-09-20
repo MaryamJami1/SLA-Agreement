@@ -50,6 +50,19 @@ $lineChecked = static fn(string $key): bool => !empty($lineInput[$key]['selected
       <div class="rec-id">ID: <?= $booking ? h(format_document_number($booking['unique_id'], 'SLA', (int) $booking['revision'])) : 'assigned on first save' ?></div>
     </div>
   </div>
+<?php if (!$ro && $status === 'confirmed'): ?>
+  <section class="block amend-panel">
+    <h3>Changing a confirmed agreement</h3>
+    <p class="muted">Contact numbers, address, reference, decor-by, the AO Mess record, signatures and operations-sheet items
+      are saved directly. <strong>Any other change is an amendment:</strong> it needs a reason, raises the revision
+      (now Rev <?= (int) $booking['revision'] ?>), and clears the signatures so the amended agreement is signed again.</p>
+    <div class="grid">
+      <?= textarea_field($ctx, 'amend_reason', 'Amendment reason (required for an amendment)', '', ' maxlength="1000" rows="2"') ?>
+      <?= textarea_field($ctx, 'override_reason', 'Venue override reason (only if moving to a venue/date already confirmed)', '', ' maxlength="1000" rows="2"') ?>
+    </div>
+    <?= field_error($ctx, 'venue_override') ?><?= field_error($ctx, 'signed_copy') ?><?= field_error($ctx, 'status') ?>
+  </section>
+<?php endif; ?>
 <?php if ($ro): ?>
   <p class="readonly-note">
     <?= $status === 'draft' ? 'You can view this booking but not edit it.' : 'This booking is ' . h($status) . ' and can no longer be edited here.' ?>

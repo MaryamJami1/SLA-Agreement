@@ -570,3 +570,19 @@ input:disabled,select:disabled,textarea:disabled{color:var(--ink);opacity:1;back
 @media print{
   .readonly-note,.hint{display:none!important;}
 }
+
+/* Registry and lifecycle (Phase 4) */
+.list-toolbar select{background:var(--card);border:1px solid var(--line);padding:8px 10px;}
+.registry-count{margin:0 4px 8px;}
+.pager{display:flex;gap:12px;align-items:center;justify-content:center;margin:14px 0;}
+.card.lifecycle{margin-top:18px;}
+.action-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;}
+.action-box{border:1px solid var(--line);padding:12px 14px;background:#FBF9F2;display:flex;flex-direction:column;gap:8px;align-items:flex-start;}
+.action-box h4{margin:0;font-family:"Courier New",monospace;font-size:.78rem;color:var(--navy);letter-spacing:.04em;}
+.action-box p{margin:0;}
+.action-box .field{width:100%;}
+.action-box textarea{width:100%;}
+label.check{display:flex;gap:6px;align-items:flex-start;font-size:.85rem;}
+.amend-panel{background:#F7F1E3;}
+.amend-panel textarea{width:100%;}
+@media print{ .card.lifecycle,.amend-panel{display:none!important;} }

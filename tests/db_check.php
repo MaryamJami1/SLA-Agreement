@@ -17,6 +17,7 @@ require APP_ROOT . '/app/counters.php';
 require APP_ROOT . '/app/audit.php';
 require APP_ROOT . '/app/auth.php';
 require APP_ROOT . '/app/bookings.php';
+require APP_ROOT . '/app/lifecycle.php';
 
 $config = require APP_ROOT . '/config/config.php';
 $GLOBALS['APP_CONFIG'] = $config;
@@ -409,6 +410,170 @@ check('vendor clash message hides the SLA number', strpos(venue_clash_messages($
 $pdo->exec("UPDATE bookings SET status = 'confirmed' WHERE id = {$created['id']}");
 [$r, $errs] = $submit($adminRow, $created['id'], 2, $edit);
 check('confirmed booking refused by the draft save', array_keys($errs), ['status']);
+
+// ---------------------------------------------------------------------------
+// Lifecycle (Phase 4): confirm, complete, cancel, delete draft, amendments
+// ---------------------------------------------------------------------------
+$lawnB = (int) $pdo->query("SELECT id FROM venues WHERE name = 'Lawn B'")->fetchColumn();
+$hall = (int) $pdo->query("SELECT id FROM venues WHERE name = 'Hall'")->fetchColumn();
+$ver = static fn(int $id): int => (int) $bookingRow($id)['version'];
+$refused = static function (callable $fn): ?string {
+    try {
+        $fn();
+        return null;
+    } catch (LifecycleRefused $e) {
+        return $e->getMessage();
+    } catch (BookingConflict $e) {
+        return 'CONFLICT';
+    }
+};
+/** Save like save.php: drafts → draft save, confirmed → direct edit / amendment. */
+$save = static function (array $user, int $id, array $post) use ($pdo, $bookingRow): array {
+    $existing = $bookingRow($id);
+    $formLines = booking_form_lines($pdo, $id);
+    $parsed = parse_booking_input($pdo, $post, $user, $existing, $formLines);
+    if ($parsed['errors']) {
+        return [null, $parsed['errors']];
+    }
+    try {
+        return [save_booking_confirmed($pdo, $user, $id, (int) $existing['version'], $parsed['fields'], $parsed['lines'],
+            $post['amend_reason'] ?? '', $post['override_reason'] ?? ''), []];
+    } catch (BookingValidationError $e) {
+        return [null, $e->errors];
+    }
+};
+$basePost = static fn(string $client, int $venue, string $date) => [
+    'client_name' => $client, 'event_date' => $date, 'venue_id' => (string) $venue, 'guests' => '100', 'per_head_rate' => '1000',
+];
+$confirmMsg = static fn(int $id, string $override = '') => $refused(fn() => confirm_booking($pdo, $adminRow, $id, $ver($id), $override));
+
+// Confirm: requirements.
+[$noVendor] = $submit($adminRow, null, null, $basePost('No Vendor', $lawnB, '2027-01-10'));
+check('confirm refused without a vendor', strpos((string) $confirmMsg($noVendor['id']), 'an active, approved vendor') !== false, true);
+[$zero] = $submit($vendorRow, null, null, ['client_name' => 'Zero', 'event_date' => '2027-01-10', 'venue_id' => (string) $lawnB]);
+check('confirm refused with a Rs. 0 net amount', strpos((string) $confirmMsg($zero['id']), 'net amount above Rs. 0') !== false, true);
+
+// Confirm: success, stale version, second booking on the same venue and date.
+[$A] = $submit($vendorRow, null, null, $basePost('Client A', $lawnB, '2027-01-10'));
+[$Bk] = $submit($vendorRow, null, null, $basePost('Client B', $lawnB, '2027-01-10'));
+check('confirm with a stale version', $refused(fn() => confirm_booking($pdo, $adminRow, $A['id'], $ver($A['id']) - 1, '')), 'CONFLICT');
+check('confirm A', $confirmMsg($A['id']), null);
+check('A is confirmed with version + 1', [$bookingRow($A['id'])['status'], $ver($A['id'])], ['confirmed', 2]);
+check('confirm audited', (int) $pdo->query("SELECT COUNT(*) FROM audit_log WHERE action = 'confirm' AND booking_id = {$A['id']}")->fetchColumn(), 1);
+check('confirm A again refused (not a draft)', strpos((string) $confirmMsg($A['id']), 'Only a draft') === 0, true);
+$msg = $confirmMsg($Bk['id']);
+check('B blocked by the confirmed A on the same venue and date', strpos((string) $msg, 'already confirmed for ' . $A['unique_id']) !== false, true);
+check('B still a draft', $bookingRow($Bk['id'])['status'], 'draft');
+check('B confirmed with an override reason', $confirmMsg($Bk['id'], 'Client A moved to the evening slot'), null);
+$ov = json_decode($pdo->query("SELECT details FROM audit_log WHERE action = 'confirm' AND booking_id = {$Bk['id']}")->fetchColumn(), true);
+check('override reason and conflict audited', [$ov['venue_override']['reason'] ?? null, $ov['venue_override']['conflicts_with'] ?? null],
+    ['Client A moved to the evening slot', [$A['unique_id']]]);
+
+// Confirm: a cancelled booking on the same venue/date doesn't block; an inactive venue does.
+[$C1] = $submit($vendorRow, null, null, $basePost('Client C1', $hall, '2027-02-01'));
+$confirmMsg($C1['id']);
+cancel_booking($pdo, $adminRow, $C1['id'], $ver($C1['id']), 'Client withdrew');
+[$C2] = $submit($vendorRow, null, null, $basePost('Client C2', $hall, '2027-02-01'));
+check('a cancelled booking does not block confirmation', $confirmMsg($C2['id']), null);
+[$D] = $submit($vendorRow, null, null, $basePost('Client D', $hall, '2027-03-01'));
+$pdo->exec("UPDATE venues SET is_active = 0 WHERE id = $hall");
+check('confirm refused on a deactivated venue', strpos((string) $confirmMsg($D['id']), 'deactivated') !== false, true);
+$pdo->exec("UPDATE venues SET is_active = 1 WHERE id = $hall");
+
+// Complete.
+check('complete refused before the event date', strpos((string) $refused(fn() => complete_booking($pdo, $adminRow, $A['id'], $ver($A['id']), false)), 'on or after') !== false, true);
+$pdo->exec("UPDATE bookings SET event_date = CURDATE() - INTERVAL 1 DAY, version = version + 1 WHERE id = {$A['id']}");
+check('complete refused with an unacknowledged balance', strpos((string) $refused(fn() => complete_booking($pdo, $adminRow, $A['id'], $ver($A['id']), false)), 'still outstanding') !== false, true);
+check('complete with acknowledgement', $refused(fn() => complete_booking($pdo, $adminRow, $A['id'], $ver($A['id']), true)), null);
+check('A completed', $bookingRow($A['id'])['status'], 'completed');
+$cd = json_decode($pdo->query("SELECT details FROM audit_log WHERE action = 'complete' AND booking_id = {$A['id']}")->fetchColumn(), true);
+check('balance recorded in the complete audit row', $cd['balance'] ?? null, '100000.00');
+check('completing a draft refused', strpos((string) $refused(fn() => complete_booking($pdo, $adminRow, $D['id'], $ver($D['id']), true)), 'Only a confirmed') === 0, true);
+
+// Cancel.
+check('cancel a completed booking refused', strpos((string) $refused(fn() => cancel_booking($pdo, $adminRow, $A['id'], $ver($A['id']), 'x')), 'Only a draft or confirmed') === 0, true);
+check('cancel without a reason refused', $refused(fn() => cancel_booking($pdo, $adminRow, $Bk['id'], $ver($Bk['id']), '  ')), 'Enter a cancellation reason.');
+$addPayment->execute([$Bk['id'], 'payment', '20000.00', 'cash', $adminId, null]);
+db_transaction(fn(PDO $p) => recompute_booking_totals($p, $Bk['id']), $pdo);
+check('cancel B (confirmed, Rs. 20,000 paid)', $refused(fn() => cancel_booking($pdo, $adminRow, $Bk['id'], $ver($Bk['id']), 'Family emergency')), null);
+$bk = $bookingRow($Bk['id']);
+check('cancelled: balance 0, amount retained kept, reason stored', [$bk['status'], $bk['balance'], $bk['paid_total'], $bk['cancellation_reason'], (int) $bk['cancelled_by']],
+    ['cancelled', '0.00', '20000.00', 'Family emergency', (int) $adminRow['id']]);
+check('cancel twice refused', strpos((string) $refused(fn() => cancel_booking($pdo, $adminRow, $Bk['id'], $ver($Bk['id']), 'again')), 'Only a draft or confirmed') === 0, true);
+
+// Delete a draft.
+[$E] = $submit($vendorRow, null, null, $basePost('Client E', $lawnB, '2027-04-01'));
+$files = [];
+foreach (['menu.pdf', 'scan.jpg'] as $orig) {
+    $stored = bin2hex(random_bytes(16));
+    file_put_contents(APP_ROOT . "/storage/uploads/$stored", 'test');
+    $pdo->prepare('INSERT INTO attachments (booking_id, original_name, stored_name, mime, size_bytes, uploaded_by) VALUES (?, ?, ?, ?, 4, ?)')
+        ->execute([$E['id'], $orig, $stored, 'application/pdf', $vendorRow['id']]);
+    $files[] = $stored;
+}
+$otherVendor = ['id' => 999999, 'role' => 'vendor'];
+check('another vendor cannot delete it', $refused(fn() => delete_draft($pdo, $otherVendor, $E['id'], $ver($E['id']))), 'Only a draft can be deleted.');
+check('owner vendor deletes the draft', $refused(fn() => delete_draft($pdo, $vendorRow, $E['id'], $ver($E['id']))), null);
+check('booking row gone', (int) $pdo->query("SELECT COUNT(*) FROM bookings WHERE id = {$E['id']}")->fetchColumn(), 0);
+check('attachment rows gone', (int) $pdo->query("SELECT COUNT(*) FROM attachments WHERE booking_id = {$E['id']}")->fetchColumn(), 0);
+check('attachment files gone', [is_file(APP_ROOT . "/storage/uploads/{$files[0]}"), is_file(APP_ROOT . "/storage/uploads/{$files[1]}")], [false, false]);
+check('earlier audit rows kept', (int) $pdo->query("SELECT COUNT(*) FROM audit_log WHERE booking_id = {$E['id']} AND action = 'create'")->fetchColumn(), 1);
+$dd = json_decode($pdo->query("SELECT details FROM audit_log WHERE action = 'delete_draft' AND booking_id = {$E['id']}")->fetchColumn(), true);
+check('delete_draft row has the SLA number and file names', [$dd['unique_id'], $dd['attachments']], [$E['unique_id'], ['menu.pdf', 'scan.jpg']]);
+[$F] = $submit($vendorRow, null, null, $basePost('Client F', $lawnB, '2027-04-02'));
+$addPayment->execute([$F['id'], 'payment', '1000.00', 'cash', $adminId, date('Y-m-d H:i:s')]); // a voided payment
+check('draft with a (voided) payment cannot be deleted', strpos((string) $refused(fn() => delete_draft($pdo, $adminRow, $F['id'], $ver($F['id']))), 'payment records') !== false, true);
+check('confirmed booking cannot be deleted', $refused(fn() => delete_draft($pdo, $adminRow, $C2['id'], $ver($C2['id']))), 'Only a draft can be deleted.');
+
+// Amendments on a confirmed, signed booking (C2: Hall, 2027-02-01).
+$c2Post = $basePost('Client C2', $hall, '2027-02-01') + ['vendor_id' => (string) $vendorRow['id'], 'client_contact' => '0300-1'];
+[$r, $e] = $save($adminRow, $C2['id'], $c2Post + ['vendor_sign_name' => 'Uzair Khan', 'client_sign_name' => 'Client C2', 'client_sign_date' => '2026-12-01']);
+check('direct edit (contact + signatures) saved', [$e, $r['amended'] ?? null], [[], false]);
+$c2 = $bookingRow($C2['id']);
+check('direct edit: no revision, signatures kept', [(int) $c2['revision'], $c2['client_sign_name']], [0, 'Client C2']);
+$signed = ['vendor_sign_name' => 'Uzair Khan', 'client_sign_name' => 'Client C2', 'client_sign_date' => '2026-12-01'];
+[$r, $e] = $save($adminRow, $C2['id'], ['guests' => '150'] + $c2Post + $signed);
+check('amendment without a reason refused', array_key_exists('amend_reason', $e), true);
+check('signed revision without a scan refused', $e['signed_copy'] ?? null, 'Upload the signed copy of Rev 0 before amending.');
+$pdo->prepare('INSERT INTO attachments (booking_id, original_name, stored_name, mime, size_bytes, uploaded_by, signed_revision) VALUES (?, ?, ?, ?, 1, ?, 0)')
+    ->execute([$C2['id'], 'signed-rev0.pdf', bin2hex(random_bytes(16)), 'application/pdf', $adminRow['id']]);
+[$r, $e] = $save($adminRow, $C2['id'], ['guests' => '150', 'amend_reason' => 'Guest count raised by client'] + $c2Post + $signed);
+check('amendment with reason and scan accepted', [$e, $r['amended'] ?? null, $r['revision'] ?? null], [[], true, 1]);
+$c2 = $bookingRow($C2['id']);
+check('Rev 1, signatures cleared, revised_at set', [(int) $c2['revision'], $c2['vendor_sign_name'], $c2['client_sign_name'], $c2['revised_at'] !== null],
+    [1, null, null, true]);
+$am = json_decode($pdo->query("SELECT details FROM audit_log WHERE action = 'amend' AND booking_id = {$C2['id']}")->fetchColumn(), true);
+check('amend audited with reason and old → new', [$am['reason'], $am['revision'], $am['changed']['guests']], ['Guest count raised by client', [0, 1], [100, 150]]);
+check('amended balance recomputed', $c2['grand_total'], '150000.00');
+
+// Rev 1 was never signed: no scan needed. A voided scan doesn't count once it is signed.
+[$r, $e] = $save($adminRow, $C2['id'], ['guests' => '160', 'amend_reason' => 'More guests'] + $c2Post);
+check('unsigned revision amends without a scan', [$e, $r['revision'] ?? null], [[], 2]);
+[$r, $e] = $save($adminRow, $C2['id'], ['guests' => '160'] + $c2Post + $signed);
+$pdo->prepare('INSERT INTO attachments (booking_id, original_name, stored_name, mime, size_bytes, uploaded_by, signed_revision, voided_at) VALUES (?, ?, ?, ?, 1, ?, 2, NOW())')
+    ->execute([$C2['id'], 'wrong.pdf', bin2hex(random_bytes(16)), 'application/pdf', $adminRow['id']]);
+[$r, $e] = $save($adminRow, $C2['id'], ['guests' => '170', 'amend_reason' => 'x'] + $c2Post + $signed);
+check('a voided signed copy does not count', $e['signed_copy'] ?? null, 'Upload the signed copy of Rev 2 before amending.');
+[$r, $e] = $save($adminRow, $C2['id'], ['guests' => '160'] + $c2Post); // clear the signatures directly (a direct edit)
+check('signatures cleared by a direct edit', [$e, $bookingRow($C2['id'])['client_sign_name']], [[], null]);
+// Venue move onto a confirmed booking's venue/date: needs an override.
+[$G] = $submit($vendorRow, null, null, $basePost('Client G', $lawnB, '2027-05-05'));
+$confirmMsg($G['id']);
+$moveTo = ['venue_id' => (string) $lawnB, 'event_date' => '2027-05-05', 'guests' => '160', 'amend_reason' => 'Moved to Lawn B'] + $c2Post;
+[$r, $e] = $save($adminRow, $C2['id'], $moveTo);
+check('amend onto a confirmed venue/date needs an override', strpos((string) ($e['venue_override'] ?? ''), $G['unique_id']) !== false, true);
+[$r, $e] = $save($adminRow, $C2['id'], ['override_reason' => 'Client G uses the lawn in the morning'] + $moveTo);
+check('amend with override accepted', $e, []);
+check('booking moved', [(int) $bookingRow($C2['id'])['venue_id'], $bookingRow($C2['id'])['event_date']], [$lawnB, '2027-05-05']);
+[$r, $e] = $save($adminRow, $C2['id'], ['event_date' => '', 'amend_reason' => 'x'] + $moveTo);
+check('an amendment can\'t remove the event date', strpos((string) ($e['status'] ?? ''), 'an event date') !== false, true);
+check('vendor cannot use the confirmed save', $refused(function () use ($pdo, $vendorRow, $C2, $bookingRow) {
+    try {
+        save_booking_confirmed($pdo, $vendorRow + ['role' => 'vendor'], $C2['id'], (int) $bookingRow($C2['id'])['version'], $bookingRow($C2['id']), [], 'x', '');
+    } catch (BookingValidationError $e) {
+        throw new LifecycleRefused(implode(' ', $e->errors));
+    }
+}) !== null, true);
 
 // ---------------------------------------------------------------------------
 $server->exec("DROP DATABASE `$testDb`");
