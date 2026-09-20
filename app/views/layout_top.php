@@ -13,6 +13,7 @@ declare(strict_types=1);
 $pageTitle = $pageTitle ?? 'AO Mess';
 $activeTab = $activeTab ?? '';
 $bare = $bare ?? false;
+$bodyClass = $bodyClass ?? '';
 $viewer = current_user();
 $flashes = session_status() === PHP_SESSION_ACTIVE ? take_flashes() : [];
 
@@ -34,7 +35,7 @@ if ($viewer !== null && (int) $viewer['must_change_password'] !== 1) {
 <link rel="icon" type="image/png" href="<?= h(url('assets/img/logo.png')) ?>">
 <script src="<?= h(url('assets/js/app.js')) ?>" defer></script>
 </head>
-<body class="<?= $bare ? 'bare' : '' ?>">
+<body class="<?= h(trim(($bare ? 'bare ' : '') . ($bodyClass ?? ''))) ?>">
 <?php if ($bare): ?>
 <div class="auth-page">
 <?php foreach ($flashes as $f): ?>

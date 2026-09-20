@@ -23,6 +23,15 @@ if ($booking['status'] === 'draft' && $booking['venue_id'] !== null && $booking[
 }
 $actions = $isAdmin || $canDelete;
 ?>
+<div class="card pad lifecycle">
+  <h3>DOCUMENTS</h3>
+  <p class="muted">Printed from the browser. A draft prints with a DRAFT watermark; an amended booking prints its Rev number.</p>
+  <p>
+    <a class="btn" href="<?= h(url('documents/agreement.php?id=' . (int) $booking['id'])) ?>">SLA agreement</a>
+    <a class="btn" href="<?= h(url('documents/invoice.php?id=' . (int) $booking['id'])) ?>">Customer invoice</a>
+    <a class="btn" href="<?= h(url('documents/vendor_sheet.php?id=' . (int) $booking['id'])) ?>">Operations sheet</a>
+  </p>
+</div>
 <?php if ($booking['status'] === 'cancelled'): ?>
 <div class="card pad lifecycle">
   <h3>CANCELLED</h3>
