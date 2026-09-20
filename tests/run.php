@@ -13,6 +13,7 @@ require __DIR__ . '/../app/auth.php';
 require __DIR__ . '/../app/bookings.php';
 require __DIR__ . '/../app/lifecycle.php';
 require __DIR__ . '/../app/payments.php';
+require __DIR__ . '/../app/documents.php';
 
 $passed = 0;
 $failed = [];
@@ -400,6 +401,29 @@ $_SESSION = [];
 $tok = payment_form_token();
 check('form token usable once', [consume_payment_form_token($tok), consume_payment_form_token($tok)], [true, false]);
 check('unknown form token rejected', consume_payment_form_token('forged'), false);
+
+// ---------------------------------------------------------------------------
+// Documents
+// ---------------------------------------------------------------------------
+check('display value', [dv('Ali'), dv(''), dv(null), dv('  '), dv(null, '____')], ['Ali', '—', '—', '—', '____']);
+check('display date', [ddate('2026-12-20'), ddate(null), ddate('', 'n/a')], ['20 Dec 2026', '—', 'n/a']);
+check('display time', [dtime('18:30:00'), dtime('09:05:00'), dtime(null)], ['6:30 pm', '9:05 am', '—']);
+$bk = ['event_type' => 'Valima', 'event_type_other' => null, 'menu_type' => 'Other', 'menu_type_other' => 'Mixed grill',
+    'event_date' => '2026-12-20', 'status' => 'confirmed'];
+check('choice: plain option', dchoice($bk, 'event_type', 'event_type_other'), 'Valima');
+check('choice: Other uses the typed text', dchoice($bk, 'menu_type', 'menu_type_other'), 'Mixed grill');
+check('choice: Other with no text', dchoice(['menu_type' => 'Other', 'menu_type_other' => null], 'menu_type', 'menu_type_other'), 'Other');
+check('watermark: draft', document_watermark(['status' => 'draft']), 'DRAFT');
+check('watermark: cancelled', document_watermark(['status' => 'cancelled']), 'CANCELLED');
+check('watermark: none when confirmed or completed',
+    [document_watermark(['status' => 'confirmed']), document_watermark(['status' => 'completed'])], [null, null]);
+check('invoice description', invoice_description($bk, 'Lawn A'),
+    'Catering, decoration & event management services — Valima (Mixed grill menu) at Lawn A on 20 Dec 2026.');
+check('invoice description without a venue or date',
+    invoice_description(['event_type' => null, 'event_type_other' => null, 'menu_type' => null, 'menu_type_other' => null, 'event_date' => null], null),
+    'Catering, decoration & event management services — event at AO Mess.');
+check('agreement number keeps Rev', format_document_number('SLA-2026-0007', 'SLA', 2), 'SLA-2026-0007 Rev 2');
+check('invoice number keeps Rev', format_document_number('SLA-2026-0007', 'INV', 2), 'INV-2026-0007 Rev 2');
 
 // ---------------------------------------------------------------------------
 echo "\n", $passed, ' passed, ', count($failed), " failed\n";

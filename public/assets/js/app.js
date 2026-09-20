@@ -10,6 +10,14 @@
     }
   });
 
+  // Print button on the document pages.
+  document.addEventListener("DOMContentLoaded", function () {
+    var printBtn = document.getElementById("print-btn");
+    if (printBtn) {
+      printBtn.addEventListener("click", function () { window.print(); });
+    }
+  });
+
   document.addEventListener('DOMContentLoaded', function () {
     var form = document.getElementById('booking-form');
     if (!form) {
