@@ -23,6 +23,8 @@ if ($viewer !== null && (int) $viewer['must_change_password'] !== 1) {
     $tabs['new'] = ['booking/form.php', 'New Booking'];
     if ($viewer['role'] === 'admin') {
         $tabs['vendors'] = ['admin/vendors.php', 'Vendors'];
+        $tabs['catalog'] = ['admin/catalog.php', 'Catalog'];
+        $tabs['venues'] = ['admin/venues.php', 'Venues'];
     }
 }
 ?><!DOCTYPE html>

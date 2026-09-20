@@ -659,3 +659,16 @@ table.doc-table.ops td.tick,table.doc-table.ops th.tick{width:60px;}
   .doc-block,.doc-parties{break-inside:avoid;}
 }
 @media (max-width:720px){ .doc-parties{grid-template-columns:1fr;} .doc{padding:16px;} }
+
+/* Admin rows (Phase 7): catalog and venues */
+.admin-row{display:flex;gap:10px 14px;align-items:flex-end;flex-wrap:wrap;padding:8px 0;border-bottom:1px dotted var(--line);}
+.admin-row:last-of-type{border-bottom:none;}
+.admin-row .field{margin:0;}
+.admin-row .field.grow{flex:1;min-width:180px;}
+.admin-row .field.narrow input,.admin-row .field.narrow select{width:110px;}
+.admin-row .field.grow input{width:100%;}
+.admin-row-extra{padding:0 0 10px;border-bottom:1px dotted var(--line);}
+.admin-row input[readonly]{color:#5C6459;background:#F3EFE3;}
+.card.attachments{margin-top:18px;}
+.card.attachments input[type=file]{font-size:.85rem;}
+@media print{ .card.attachments{display:none!important;} }

@@ -19,6 +19,8 @@ require APP_ROOT . '/app/auth.php';
 require APP_ROOT . '/app/bookings.php';
 require APP_ROOT . '/app/lifecycle.php';
 require APP_ROOT . '/app/payments.php';
+require APP_ROOT . '/app/attachments.php';
+require APP_ROOT . '/app/admin_data.php';
 
 $config = require APP_ROOT . '/config/config.php';
 $GLOBALS['APP_CONFIG'] = $config;
@@ -687,6 +689,127 @@ complete_booking($pdo, $adminRow, $P['id'], $ver($P['id']), true);
 check('payment on a completed booking allowed', $pay($P['id'], '500'), null);
 check('void on a completed booking allowed', $void($P['id'], $lastPayment($P['id'])), null);
 check('refund on a completed booking refused', $pay($P['id'], '500', 'refund'), 'Refunds can be recorded only on a cancelled booking.');
+
+// ---------------------------------------------------------------------------
+// Attachments and admin screens (Phase 7)
+// ---------------------------------------------------------------------------
+$fakeUpload = static function (string $name = 'scan.pdf'): array {
+    $stored = bin2hex(random_bytes(16));
+    file_put_contents(APP_ROOT . '/storage/uploads/' . $stored, '%PDF-1.4 test');
+    $GLOBALS['test_uploads'][] = $stored;
+    return ['stored_name' => $stored, 'original_name' => $name, 'mime' => 'application/pdf', 'size' => 13];
+};
+$attach = static function (array $user, int $bookingId, ?int $signedRevision = null, string $name = 'scan.pdf') use ($pdo, $fakeUpload) {
+    $stored = $fakeUpload($name);
+    try {
+        return ['id' => attach_file($pdo, $user, $bookingId, $stored, $signedRevision), 'stored' => $stored['stored_name'], 'error' => null];
+    } catch (AttachmentRefused $e) {
+        return ['id' => null, 'stored' => $stored['stored_name'], 'error' => $e->getMessage()];
+    }
+};
+$voidFile = static function (int $bookingId, int $attachmentId, string $reason = 'wrong file') use ($pdo, $adminRow): ?string {
+    try {
+        void_attachment($pdo, $adminRow, $bookingId, $attachmentId, $reason);
+        return null;
+    } catch (AttachmentRefused $e) {
+        return $e->getMessage();
+    }
+};
+
+[$AT] = $submit($vendorRow, null, null, $basePost('Attach Client', $lawnB, '2027-11-11'));
+$r = $attach($vendorRow, $AT['id'], null, 'menu.pdf');
+check('vendor attaches to their own draft', [$r['error'], is_int($r['id'])], [null, true]);
+check('file kept on disk', is_file(APP_ROOT . '/storage/uploads/' . $r['stored']), true);
+check('attachment_add audited', (int) $pdo->query("SELECT COUNT(*) FROM audit_log WHERE action = 'attachment_add' AND booking_id = {$AT['id']}")->fetchColumn(), 1);
+$rOther = $attach(['id' => 999999, 'role' => 'vendor'], $AT['id']);
+check('another vendor cannot attach', $rOther['error'], 'You can\'t attach files to this booking.');
+check('refused upload leaves no file on disk', is_file(APP_ROOT . '/storage/uploads/' . $rOther['stored']), false);
+
+$confirmMsg($AT['id']);
+$r = $attach($vendorRow, $AT['id']);
+check('vendor cannot attach to a confirmed booking', $r['error'], 'You can\'t attach files to this booking.');
+$r = $attach($adminRow, $AT['id'], 5);
+check('signed revision must match the booking', strpos((string) $r['error'], 'is now Rev 0') !== false, true);
+$signed = $attach($adminRow, $AT['id'], 0, 'signed-rev0.pdf');
+check('admin files the signed copy of Rev 0', $signed['error'], null);
+check('signed copy listed for the current revision',
+    (int) $pdo->query("SELECT COUNT(*) FROM attachments WHERE booking_id = {$AT['id']} AND signed_revision = 0 AND voided_at IS NULL")->fetchColumn(), 1);
+
+// Checkpoint: a voided signed copy no longer satisfies the amendment check.
+$signedPost = $basePost('Attach Client', $lawnB, '2027-11-11') + ['vendor_id' => (string) $vendorRow['id'],
+    'firm_name' => 'Uzair Caterers', 'rep_name' => 'Uzair Khan', 'rep_contact' => '0312-2159834',
+    'vendor_sign_name' => 'Uzair Khan', 'client_sign_name' => 'Attach Client'];
+[$r, $e] = $save($adminRow, $AT['id'], $signedPost);                       // record the signatures (direct edit)
+check('signatures recorded on the confirmed booking', $e, []);
+[$r, $e] = $save($adminRow, $AT['id'], ['guests' => '120', 'amend_reason' => 'More guests'] + $signedPost);
+check('amendment allowed while the signed copy is on file', [$e, $r['revision'] ?? null], [[], 1]);
+[$r, $e] = $save($adminRow, $AT['id'], ['guests' => '120'] + $signedPost); // sign Rev 1 as well
+$signed1 = $attach($adminRow, $AT['id'], 1, 'signed-rev1.pdf');
+check('signed copy of Rev 1 filed', $signed1['error'], null);
+check('voiding the signed copy', $voidFile($AT['id'], $signed1['id']), null);
+[$r, $e] = $save($adminRow, $AT['id'], ['guests' => '130', 'amend_reason' => 'Again'] + $signedPost);
+check('a voided signed copy no longer satisfies the amendment check', $e['signed_copy'] ?? null, 'Upload the signed copy of Rev 1 before amending.');
+check('voided file stays on disk and in the table',
+    [is_file(APP_ROOT . '/storage/uploads/' . $signed1['stored']),
+     (int) $pdo->query("SELECT COUNT(*) FROM attachments WHERE id = {$signed1['id']}")->fetchColumn()], [true, 1]);
+check('voiding twice is refused', $voidFile($AT['id'], $signed1['id']), 'This file has already been voided.');
+check('void needs a reason', $voidFile($AT['id'], $signed['id'], '  '), 'Enter the reason for voiding this file.');
+check('voiding another booking\'s file is refused', $voidFile($C2['id'], $signed['id']), 'That file doesn\'t belong to this booking.');
+check('attachment_void audited', (int) $pdo->query("SELECT COUNT(*) FROM audit_log WHERE action = 'attachment_void' AND booking_id = {$AT['id']}")->fetchColumn(), 1);
+check('vendors are not shown voided files',
+    [count(booking_attachments($pdo, (int) $AT['id'], false)), count(booking_attachments($pdo, (int) $AT['id'], true))], [2, 3]);
+
+// Venues: used venues can only be deactivated.
+$adminRefused = static function (callable $fn): ?string {
+    try {
+        $fn();
+        return null;
+    } catch (AdminRefused $e) {
+        return $e->getMessage();
+    }
+};
+check('rename a used venue refused', strpos((string) $adminRefused(fn() => update_venue($pdo, $adminRow, $lawnB, 'Lawn B (East)', true, 20)), 'can\'t be renamed') !== false, true);
+check('deactivate a used venue', $adminRefused(fn() => update_venue($pdo, $adminRow, $lawnB, 'Lawn B', false, 20)), null);
+check('venue deactivated', (int) $pdo->query("SELECT is_active FROM venues WHERE id = $lawnB")->fetchColumn(), 0);
+check('venue_change audited', (int) $pdo->query("SELECT COUNT(*) FROM audit_log WHERE action = 'venue_change'")->fetchColumn() >= 1, true);
+check('delete a used venue refused', strpos((string) $adminRefused(fn() => delete_venue($pdo, $adminRow, $lawnB)), 'can\'t be deleted') !== false, true);
+$adminRefused(fn() => update_venue($pdo, $adminRow, $lawnB, 'Lawn B', true, 20)); // put it back
+check('create a venue', $adminRefused(fn() => create_venue($pdo, $adminRow, 'Terrace', '60')), null);
+$terrace = (int) $pdo->query("SELECT id FROM venues WHERE name = 'Terrace'")->fetchColumn();
+check('duplicate venue name refused', strpos((string) $adminRefused(fn() => create_venue($pdo, $adminRow, 'Terrace', '70')), 'already a venue') !== false, true);
+check('rename an unused venue', $adminRefused(fn() => update_venue($pdo, $adminRow, $terrace, 'Roof Terrace', true, 60)), null);
+check('delete an unused venue', $adminRefused(fn() => delete_venue($pdo, $adminRow, $terrace)), null);
+check('venue gone', (int) $pdo->query("SELECT COUNT(*) FROM venues WHERE id = $terrace")->fetchColumn(), 0);
+
+// Catalog: renaming, re-rating and changing the unit never touch existing bookings (checkpoint, plan test 17).
+$stageId = $catalogId('Stage Charges');
+[$CAT] = $submit($vendorRow, null, null, $basePost('Catalog Client', $lawnA, '2027-12-12') + [
+    'lines' => ["c$stageId" => ['present' => '1', 'selected' => '1', 'rate' => '20000']]]);
+$lineBefore = $pdo->query("SELECT label, unit_snapshot, rate, amount FROM booking_line_items WHERE booking_id = {$CAT['id']} AND catalog_id = $stageId")->fetch();
+check('booking line snapshot', [$lineBefore['label'], $lineBefore['unit_snapshot'], $lineBefore['amount']], ['Stage Charges', 'fixed', '20000.00']);
+check('rename, re-rate and change the unit in the catalog',
+    $adminRefused(fn() => update_catalog_item($pdo, $adminRow, $stageId, ['name' => 'Stage & Backdrop', 'unit' => 'per head', 'default_rate' => '350.00', 'is_active' => 1, 'sort_order' => 50])), null);
+db_transaction(fn(PDO $p) => recompute_booking_totals($p, $CAT['id']), $pdo);
+$lineAfter = $pdo->query("SELECT label, unit_snapshot, rate, amount FROM booking_line_items WHERE booking_id = {$CAT['id']} AND catalog_id = $stageId")->fetch();
+check('existing booking keeps its label, unit, rate and amount', $lineAfter, $lineBefore);
+check('catalog_change audited with old → new',
+    json_decode($pdo->query("SELECT details FROM audit_log WHERE action = 'catalog_change' ORDER BY id DESC LIMIT 1")->fetchColumn(), true)['changed']['name'] ?? null,
+    ['Stage Charges', 'Stage & Backdrop']);
+$newLines = booking_form_lines($pdo, null);
+check('new bookings get the new label, unit and rate',
+    [$newLines["c$stageId"]['label'], $newLines["c$stageId"]['unit'], $newLines["c$stageId"]['rate']], ['Stage & Backdrop', 'per head', '350.00']);
+check('retiring an item keeps it on existing bookings but off new ones',
+    $adminRefused(fn() => update_catalog_item($pdo, $adminRow, $stageId, ['name' => 'Stage & Backdrop', 'unit' => 'per head', 'default_rate' => '350.00', 'is_active' => 0, 'sort_order' => 50])), null);
+check('retired item not offered on a new booking', isset(booking_form_lines($pdo, null)["c$stageId"]), false);
+check('retired item still on the existing booking', isset(booking_form_lines($pdo, (int) $CAT['id'])['l' . $lineBefore2 = $pdo->query("SELECT id FROM booking_line_items WHERE booking_id = {$CAT['id']} AND catalog_id = $stageId")->fetchColumn()]), true);
+check('create a catalog item', $adminRefused(fn() => create_catalog_item($pdo, $adminRow, clean_catalog_input(
+    ['section' => 'charge', 'name' => 'Fireworks', 'unit' => 'fixed', 'default_rate' => '75,000', 'sort_order' => '90', 'is_active' => '1'], true))), null);
+check('new catalog item offered', isset(booking_form_lines($pdo, null)['c' . $catalogId('Fireworks')]), true);
+
+// Remove the files these checks wrote into storage/uploads/.
+foreach ($GLOBALS['test_uploads'] ?? [] as $stored) {
+    @unlink(APP_ROOT . '/storage/uploads/' . $stored);
+}
 
 // ---------------------------------------------------------------------------
 $server->exec("DROP DATABASE `$testDb`");
