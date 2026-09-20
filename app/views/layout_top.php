@@ -25,6 +25,7 @@ if ($viewer !== null && (int) $viewer['must_change_password'] !== 1) {
         $tabs['vendors'] = ['admin/vendors.php', 'Vendors'];
         $tabs['catalog'] = ['admin/catalog.php', 'Catalog'];
         $tabs['venues'] = ['admin/venues.php', 'Venues'];
+        $tabs['preflight'] = ['admin/preflight.php', 'Checks'];
     }
 }
 ?><!DOCTYPE html>

@@ -1,0 +1,9 @@
+# This folder must never be web-accessible. It normally lives above public_html;
+# this file is the fallback for accounts where that isn't possible.
+Require all denied
+
+# Older Apache (2.2) syntax, harmless on 2.4+
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>

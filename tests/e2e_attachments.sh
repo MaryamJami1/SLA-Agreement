@@ -187,6 +187,10 @@ req a GET /admin/venues.php; contains "Deleted venue" "unused venue deleted"
 csrf a /admin/venues.php
 req a POST /admin/venues.php "_csrf=$TOKEN" "action=delete" "venue_id=$LAWN_A"
 req a GET /admin/venues.php; contains "can&#039;t be deleted" "used venue can't be deleted"
+req a GET /admin/preflight.php; expect "$CODE" "200" "deployment checks page opens for the admin"
+contains "All tables imported" "database check listed"
+contains "Default admin password changed" "seeded-password check listed"
+req v GET /admin/preflight.php; expect "$CODE" "404" "vendor: 404 on the checks page"
 req v GET /admin/catalog.php; expect "$CODE" "404" "vendor: 404 on the catalog page"
 req v GET /admin/venues.php; expect "$CODE" "404" "vendor: 404 on the venues page"
 

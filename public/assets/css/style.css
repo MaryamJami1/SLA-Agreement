@@ -672,3 +672,9 @@ table.doc-table.ops td.tick,table.doc-table.ops th.tick{width:60px;}
 .card.attachments{margin-top:18px;}
 .card.attachments input[type=file]{font-size:.85rem;}
 @media print{ .card.attachments{display:none!important;} }
+
+/* Deployment checks (Phase 8) */
+.preflight-state{width:70px;}
+.badge.state-pass{border-color:var(--ok);color:var(--ok);}
+.badge.state-warn{border-color:var(--brass);color:var(--brass);}
+.badge.state-fail{border-color:var(--danger);color:var(--danger);}
