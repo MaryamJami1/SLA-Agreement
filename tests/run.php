@@ -14,6 +14,8 @@ require __DIR__ . '/../app/bookings.php';
 require __DIR__ . '/../app/lifecycle.php';
 require __DIR__ . '/../app/payments.php';
 require __DIR__ . '/../app/documents.php';
+require __DIR__ . '/../app/attachments.php';
+require __DIR__ . '/../app/admin_data.php';
 
 $passed = 0;
 $failed = [];
@@ -424,6 +426,48 @@ check('invoice description without a venue or date',
     'Catering, decoration & event management services — event at AO Mess.');
 check('agreement number keeps Rev', format_document_number('SLA-2026-0007', 'SLA', 2), 'SLA-2026-0007 Rev 2');
 check('invoice number keeps Rev', format_document_number('SLA-2026-0007', 'INV', 2), 'INV-2026-0007 Rev 2');
+
+// ---------------------------------------------------------------------------
+// Attachments and admin data
+// ---------------------------------------------------------------------------
+check('file name kept', sanitize_file_name('Signed SLA Rev 0.pdf'), 'Signed SLA Rev 0.pdf');
+check('path stripped from the file name', sanitize_file_name('C:\\Users\\me\\scan.pdf'), 'C: Users me scan.pdf');
+check('quotes and control characters stripped', sanitize_file_name("bad\"name\r\n.pdf"), 'badname.pdf');
+check('empty file name replaced', sanitize_file_name('   '), 'upload');
+check('long file name trimmed', mb_strlen(sanitize_file_name(str_repeat('a', 400) . '.pdf')), 255);
+
+$draft = ['vendor_id' => 5, 'status' => 'draft'];
+$confirmed = ['vendor_id' => 5, 'status' => 'confirmed'];
+$adminUser = ['id' => 1, 'role' => 'admin'];
+$ownerVendor = ['id' => 5, 'role' => 'vendor'];
+$otherVendor = ['id' => 6, 'role' => 'vendor'];
+check('owner vendor uploads to their draft', can_upload_attachment($draft, $ownerVendor), true);
+check('owner vendor cannot upload to a confirmed booking', can_upload_attachment($confirmed, $ownerVendor), false);
+check('other vendor cannot upload', can_upload_attachment($draft, $otherVendor), false);
+check('admin uploads in any status', [can_upload_attachment($draft, $adminUser), can_upload_attachment($confirmed, $adminUser),
+    can_upload_attachment(['vendor_id' => 5, 'status' => 'cancelled'], $adminUser)], [true, true, true]);
+check('accepted upload types', array_keys(UPLOAD_TYPES), ['application/pdf', 'image/jpeg', 'image/png']);
+check('upload limit is 5 MB', UPLOAD_MAX_BYTES, 5242880);
+
+$catalog = clean_catalog_input(['name' => ' Valet Parking ', 'unit' => 'fixed', 'default_rate' => '9,500', 'sort_order' => '20', 'is_active' => '1'], false);
+check('catalog input cleaned', $catalog, ['name' => 'Valet Parking', 'unit' => 'fixed', 'sort_order' => 20, 'is_active' => 1, 'default_rate' => '9500.00']);
+check('catalog rate may be empty', clean_catalog_input(['name' => 'X', 'unit' => 'fixed', 'default_rate' => '', 'sort_order' => '0'], false)['default_rate'], null);
+check('unticked "offered" retires the item', clean_catalog_input(['name' => 'X', 'unit' => 'fixed', 'sort_order' => '0'], false)['is_active'], 0);
+$refused = static function (callable $fn): ?string {
+    try {
+        $fn();
+        return null;
+    } catch (AdminRefused $e) {
+        return $e->getMessage();
+    }
+};
+check('catalog name required', $refused(fn() => clean_catalog_input(['name' => '  ', 'unit' => 'fixed'], false)) !== null, true);
+check('catalog unit must be known', $refused(fn() => clean_catalog_input(['name' => 'X', 'unit' => 'per kilo'], false)) !== null, true);
+check('catalog section must be known on create', $refused(fn() => clean_catalog_input(['name' => 'X', 'unit' => 'fixed', 'section' => 'nope'], true)) !== null, true);
+check('catalog section accepted on create', clean_catalog_input(['name' => 'X', 'unit' => 'fixed', 'section' => 'ops_item', 'sort_order' => '0'], true)['section'], 'ops_item');
+check('negative rate refused', $refused(fn() => clean_catalog_input(['name' => 'X', 'unit' => 'fixed', 'default_rate' => '-5'], false)) !== null, true);
+check('sort order must be a whole number', $refused(fn() => clean_sort_order('abc')) !== null, true);
+check('sort order default', clean_sort_order(''), 0);
 
 // ---------------------------------------------------------------------------
 echo "\n", $passed, ' passed, ', count($failed), " failed\n";

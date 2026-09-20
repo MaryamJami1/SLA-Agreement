@@ -5,6 +5,7 @@ require_once APP_ROOT . '/app/bookings.php';
 require_once APP_ROOT . '/app/views/form_helpers.php';
 require_once APP_ROOT . '/app/lifecycle.php';
 require_once APP_ROOT . '/app/payments.php';
+require_once APP_ROOT . '/app/attachments.php';
 
 $viewer = require_login();
 $pdo = db();
@@ -50,5 +51,6 @@ require APP_ROOT . '/app/views/booking_form.php';
 if ($booking) {
     require APP_ROOT . '/app/views/booking_actions.php';
     require APP_ROOT . '/app/views/booking_payments.php';
+    require APP_ROOT . '/app/views/booking_attachments.php';
 }
 require APP_ROOT . '/app/views/layout_bottom.php';
