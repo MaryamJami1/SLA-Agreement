@@ -1,11 +1,16 @@
 # AO Mess Event Booking & SLA System (PHP + MySQL, Hostinger)
 
-> Status: **IMPLEMENTATION-READY — Rev 6 (final)**. Implementation not started; waiting for "start coding".
+> Status: **Rev 6 (final) — BUILT**. This is the specification the code follows; the revision notes below record how it got here.
 > Rev 5: bootstrap path by folder depth, refunds on cancelled bookings only, one booking per venue per day, refund cap.
 > Rev 6 (from plan review + code review of the mockups): void permissions per status, cancelled-booking balance, staging/web-root guard, amendment lock order, booking ownership rules, completion rules, attachment voiding, catalog items on existing bookings, unsaved-changes warning, session/throttling/download hardening, extra audit actions, one totals-recompute function, attachment writes under the booking lock, cross-IP login slowdown, session file cleanup.
 > Rev 6 final additions: transactional cancel/complete, venue history protection, append-only audit log, server-side numeric validation, forced-password-change lockdown, cancellation limited to draft/confirmed, `vendor_id` must be an active approved vendor, venue-changing amendments lock old + new venue rows in ascending id order.
 > Rev 6 review fixes: attachment permissions per status, device cookie for login limit 3, amendment steps reordered (locks first), `Secure` cookie by HTTPS/`APP_ENV`, refund-percentage validation and hint base, confirm re-validation on the locked row, active venue required to confirm, Phase 4/7 signed-copy testing note, `realpath()` web-root guard.
-> No PHP/SQL/CSS will be written until you explicitly say "start coding".
+
+> **Build status (20 Sep 2026): Phases 0–8 are built and tested locally. Deployment to Hostinger is
+> the remaining step** — see `docs/DEPLOY.md` and `docs/GO_LIVE_CHECKLIST.md`. Local test totals:
+> 271 unit, 211 database, 7 concurrency and 301 end-to-end HTTP checks.
+> Still open with the client: contract wording, charge rates, the venue list, who confirms bookings
+> and records payments, and the office address for the letterhead (Section 13).
 
 ## 1. Context
 
@@ -58,22 +63,26 @@ project/
     .htaccess                     -> force HTTPS, Options -Indexes
     .user.ini                     -> upload_max_filesize / post_max_size
     auth/       login.php  logout.php  register.php  change_password.php
-    admin/      vendors.php (approve / disable / reset password)  catalog.php  venues.php
+    admin/      vendors.php (approve / disable / reset password)  catalog.php  venues.php  preflight.php
     booking/    list.php  form.php  save.php  confirm.php  cancel.php  complete.php  delete.php
     payments/   add.php  void.php
     documents/  agreement.php  invoice.php  vendor_sheet.php  download.php  upload.php  attachment_void.php
     assets/     css/style.css  js/app.js  img/logo.png
   app/                            -> never web-accessible
     bootstrap.php                 -> timezone, config, session, DB, CSRF check on every POST
-    db.php  auth.php  csrf.php  helpers.php  money.php  counters.php
-    bookings.php                  -> load_booking_for_user(), totals, venue conflict, lifecycle rules
-    audit.php
-    views/      layout_top.php  layout_bottom.php
+    db.php  auth.php  csrf.php  helpers.php  money.php  counters.php  audit.php
+    bookings.php                  -> load_booking_for_user(), field rules, form lines, draft save
+    lifecycle.php                 -> confirm, complete, cancel, delete draft, amendments
+    payments.php  attachments.php  documents.php  admin_data.php (venues, catalog)
+    views/      layout_top.php  layout_bottom.php  booking_*.php  doc_*.php  form_helpers.php
   config/       config.sample.php  config.php (real credentials, never committed)
   database/     schema.sql (= schema version 1)  seed.sql  migrations/ (README; 002_… onwards after launch)
   storage/      uploads/  logs/  sessions/
   tests/        run.php                -> plain-PHP tests for pure functions
                 db_check.php           -> local-only checks against a throwaway <DB_NAME>_test database
+                concurrency_check.php  -> parallel processes: race-safe confirm, deadlock-free amendments
+                e2e*.sh                -> end-to-end HTTP checks, one script per phase
+  docs/         DEPLOY.md  GO_LIVE_CHECKLIST.md  TESTING.md
 ```
 
 Every page in `public/` starts by requiring the bootstrap. The relative path depends on how deep the file sits (the depths are the same after upload to `public_html`):

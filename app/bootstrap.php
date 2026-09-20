@@ -98,7 +98,11 @@ if (PHP_SAPI === 'cli') {
 // HTTPS (production) and security headers
 // ---------------------------------------------------------------------------
 if (is_production() && !is_https()) {
-    header('Location: https://' . ($_SERVER['HTTP_HOST'] ?? '') . ($_SERVER['REQUEST_URI'] ?? '/'), true, 301);
+    $target = https_redirect_target($_SERVER, (string) cfg('CANONICAL_HOST', ''));
+    if ($target === null) {
+        bootstrap_fail('Cannot redirect to HTTPS: no CANONICAL_HOST in config.php and no usable Host header.');
+    }
+    header('Location: ' . $target, true, 301);
     exit;
 }
 header('X-Content-Type-Options: nosniff');

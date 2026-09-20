@@ -43,6 +43,27 @@ function url(string $path = ''): string
     return rtrim((string) cfg('BASE_URL', ''), '/') . '/' . ltrim($path, '/');
 }
 
+/**
+ * Where an insecure production request should be sent. Never trusts the Host header as it stands:
+ * CANONICAL_HOST wins, otherwise the header is filtered down to host characters. Null when there is
+ * no usable host (the caller then refuses to serve the request).
+ */
+function https_redirect_target(array $server, string $canonicalHost): ?string
+{
+    $host = trim($canonicalHost);
+    if ($host === '') {
+        $host = preg_replace('/[^A-Za-z0-9.\-:]/', '', (string) ($server['HTTP_HOST'] ?? ''));
+    }
+    if ($host === '' || $host === null) {
+        return null;
+    }
+    $uri = (string) ($server['REQUEST_URI'] ?? '/');
+    if ($uri === '' || $uri[0] !== '/') {
+        $uri = '/';
+    }
+    return 'https://' . $host . $uri;
+}
+
 function redirect(string $path): void
 {
     header('Location: ' . url($path), true, 303);

@@ -470,6 +470,20 @@ check('sort order must be a whole number', $refused(fn() => clean_sort_order('ab
 check('sort order default', clean_sort_order(''), 0);
 
 // ---------------------------------------------------------------------------
+// HTTPS redirect target (production hardening)
+// ---------------------------------------------------------------------------
+check('canonical host wins over the Host header',
+    https_redirect_target(['HTTP_HOST' => 'evil.example', 'REQUEST_URI' => '/booking/list.php'], 'aomess.pk'),
+    'https://aomess.pk/booking/list.php');
+check('host header used when no canonical host is set',
+    https_redirect_target(['HTTP_HOST' => 'aomess.pk:8080', 'REQUEST_URI' => '/'], ''), 'https://aomess.pk:8080/');
+check('host header filtered', https_redirect_target(['HTTP_HOST' => "aomess.pk/evil\r\nX: y", 'REQUEST_URI' => '/'], ''),
+    'https://aomess.pkevilX:y/');
+check('no host at all', https_redirect_target(['REQUEST_URI' => '/'], ''), null);
+check('relative request URI forced to root',
+    https_redirect_target(['HTTP_HOST' => 'aomess.pk', 'REQUEST_URI' => 'https://evil.example/x'], ''), 'https://aomess.pk/');
+
+// ---------------------------------------------------------------------------
 echo "\n", $passed, ' passed, ', count($failed), " failed\n";
 foreach ($failed as $f) {
     echo "\nFAIL: $f\n";

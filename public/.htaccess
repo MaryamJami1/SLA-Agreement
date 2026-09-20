@@ -1,0 +1,39 @@
+# AO Mess — web root settings (Apache / LiteSpeed, as used by Hostinger).
+# Only this folder's contents are uploaded into public_html.
+
+# --- HTTPS -----------------------------------------------------------------
+# The app also redirects in PHP; this catches requests that never reach PHP.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+</IfModule>
+
+# --- No directory listings -------------------------------------------------
+Options -Indexes
+
+# --- Default document ------------------------------------------------------
+DirectoryIndex index.php
+
+# --- Hide dot files (.user.ini, .htaccess, editor leftovers) ---------------
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+# --- Never serve these, whatever ends up in the web root -------------------
+<FilesMatch "\.(sql|md|sh|ini|log|bak|old|swp|dist|json|lock)$">
+    Require all denied
+</FilesMatch>
+
+# --- Static assets can be cached; PHP pages must not be -------------------
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css "access plus 7 days"
+    ExpiresByType application/javascript "access plus 7 days"
+    ExpiresByType image/png "access plus 30 days"
+</IfModule>
+
+# --- Errors ----------------------------------------------------------------
+# PHP renders its own 404 for missing records; this covers missing files.
+ErrorDocument 404 /index.php

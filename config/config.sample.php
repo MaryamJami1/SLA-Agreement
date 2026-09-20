@@ -10,6 +10,10 @@ return [
     // URL path the app is served under: '' for the domain root (Hostinger, local), or e.g. '/portal'.
     'BASE_URL' => '',
 
+    // Production only: the site's own host name, e.g. 'portal.aomess.pk'. Used for the HTTPS redirect
+    // so a forged Host header can never send visitors elsewhere. Leave empty on local.
+    'CANONICAL_HOST' => '',
+
     // Database. Local XAMPP MariaDB runs on port 3307 (MySQL80 keeps 3306).
     'DB_HOST' => '127.0.0.1',
     'DB_PORT' => 3307,
