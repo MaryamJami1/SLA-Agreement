@@ -25,8 +25,10 @@ login() { csrf "$1" /auth/login.php; req "$1" POST /auth/login.php "_csrf=$TOKEN
 ver() { $MYSQL -e "SELECT version FROM bookings WHERE id=$1"; }
 status() { $MYSQL -e "SELECT status FROM bookings WHERE id=$1"; }
 # new_draft JAR CLIENT DATE VENUE -> ID (a confirmable draft: Rs. 1,00,000)
-new_draft() { csrf "$1" /booking/form.php
-  req "$1" POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=$2" "event_date=$3" "venue_id=$4" \
+# Only AO Mess sets money, so the priced draft is saved by the admin with the vendor as its
+# owner. The JAR argument is kept for readability; ownership is what the tests below turn on.
+new_draft() { csrf a /booking/form.php
+  req a POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=$2" "event_date=$3" "venue_id=$4" \
     "guests=100" "per_head_rate=1000" "client_cnic=42101-1234567-1" "vendor_id=$VENDOR_ID"
   ID=${LOC##*=}; }
 

@@ -71,7 +71,10 @@ foreach ($formLines as $key => $l) {
     $in = is_array($postedLines[$key] ?? null) ? $postedLines[$key] : [];
     $lineInput[$key] = [
         'selected' => isset($in['selected']),
-        'rate'     => is_string($in['rate'] ?? null) ? $in['rate'] : '',
+        // A vendor's rate box is read-only (not posted): show AO Mess's rate again.
+        'rate'     => $viewer['role'] === 'vendor' && $l['section'] === 'charge'
+            ? (string) ($l['rate'] ?? '')
+            : (is_string($in['rate'] ?? null) ? $in['rate'] : ''),
         'qty'      => is_string($in['qty'] ?? null) ? $in['qty'] : '',
         'notes'    => is_string($in['notes'] ?? null) ? $in['notes'] : '',
     ];

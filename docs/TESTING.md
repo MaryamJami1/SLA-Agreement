@@ -24,8 +24,12 @@ C:/xampp/php/php.exe tests/db_check.php
 ```
 
 Builds `<DB_NAME>_test` from `database/schema.sql` + `seed.sql`, exercises the SLA counter, totals,
-login throttling, the booking save, the whole lifecycle, payments, attachments and the admin screens,
-then drops the database. It refuses to run if `APP_ENV` is `production`.
+login throttling, the booking save, the whole lifecycle, payments, attachments, venue locations, the
+calendar, the approvals queue and the admin screens, then drops the database. It refuses to run if
+`APP_ENV` is `production`.
+
+It also checks that `schema.sql` records every migration in `database/migrations/`, so adding a
+migration without folding it into `schema.sql` fails the suite.
 
 ## 3. Concurrency checks
 

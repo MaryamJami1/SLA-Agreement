@@ -58,6 +58,7 @@ CREATE TABLE counters (
 CREATE TABLE venues (
   id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
   name       VARCHAR(100) NOT NULL,
+  location   VARCHAR(150) NULL,                 -- where it sits inside AO Mess; copied onto each booking
   is_active  TINYINT(1)   NOT NULL DEFAULT 1,
   sort_order INT          NOT NULL DEFAULT 0,
   PRIMARY KEY (id),
@@ -132,6 +133,7 @@ CREATE TABLE bookings (
   alt_date            DATE NULL,
   venue_id            INT UNSIGNED NULL,
   venue_other         VARCHAR(150) NULL,
+  venue_location      VARCHAR(150) NULL,        -- snapshot of venues.location at save time
   setup_time          TIME NULL,
   start_time          TIME NULL,
   guests              INT UNSIGNED NOT NULL DEFAULT 0,
@@ -310,6 +312,8 @@ CREATE TABLE schema_version (
   PRIMARY KEY (version)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT INTO schema_version (version) VALUES (1);
+-- This file carries version 1 plus every migration in database/migrations/ folded in,
+-- so a fresh install lands on the same structure an upgraded database reaches.
+INSERT INTO schema_version (version) VALUES (1), (2);
 
 SET FOREIGN_KEY_CHECKS = 1;

@@ -20,6 +20,7 @@ require APP_ROOT . '/app/bookings.php';
 require APP_ROOT . '/app/lifecycle.php';
 require APP_ROOT . '/app/payments.php';
 require APP_ROOT . '/app/attachments.php';
+require APP_ROOT . '/app/documents.php';
 require APP_ROOT . '/app/admin_data.php';
 
 $config = require APP_ROOT . '/config/config.php';
@@ -79,7 +80,19 @@ sort($tables, SORT_STRING);
 check('all 11 tables exist', $tables, ['attachments', 'audit_log', 'booking_line_items', 'bookings', 'counters',
     'item_catalog', 'login_attempts', 'payments', 'schema_version', 'users', 'venues']);
 check('all tables InnoDB', (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND engine <> 'InnoDB'")->fetchColumn(), 0);
-check('schema_version = 1', (int) $pdo->query('SELECT MAX(version) FROM schema_version')->fetchColumn(), 1);
+// schema.sql must record version 1 plus every migration, so a fresh install and an upgraded
+// database agree on where they are. Derived from the files, so adding a migration can't be forgotten.
+$migrationVersions = [];
+foreach (glob(APP_ROOT . '/database/migrations/*.sql') ?: [] as $file) {
+    if (preg_match('/^(\d+)_/', basename($file), $m)) {
+        $migrationVersions[] = (int) $m[1];
+    }
+}
+$latestVersion = $migrationVersions ? max($migrationVersions) : 1;
+check('schema_version matches the newest migration',
+    (int) $pdo->query('SELECT MAX(version) FROM schema_version')->fetchColumn(), $latestVersion);
+check('every migration version is recorded',
+    (int) $pdo->query('SELECT COUNT(*) FROM schema_version')->fetchColumn(), $latestVersion);
 
 $admin = $pdo->query("SELECT * FROM users WHERE username = 'admin'")->fetch();
 check('seeded admin is active admin', [$admin['role'], $admin['status']], ['admin', 'active']);
@@ -323,6 +336,7 @@ $submit = static function (array $user, ?int $id, ?int $version, array $post) us
 $bookingRow = static function (int $id) use ($pdo): array {
     return $pdo->query("SELECT * FROM bookings WHERE id = $id")->fetch();
 };
+$ver0 = static fn(int $id): int => (int) $bookingRow($id)['version'];
 
 $post = [
     'client_name' => 'Ayesha Siddiqui', 'client_cnic' => '4210112345671', 'event_type' => 'Valima',
@@ -346,13 +360,39 @@ check('status draft, version 1', [$b['status'], (int) $b['version']], ['draft', 
 check('CNIC normalized', $b['client_cnic'], '42101-1234567-1');
 check('"Other" text dropped when type is not Other', $b['event_type_other'], null);
 check('time stored', $b['setup_time'], '18:00:00');
-check('totals stored', [$b['guest_charges'], $b['charges_total'], $b['grand_total'], $b['balance']], ['300000.00', '50000.00', '350000.00', '350000.00']);
+// The vendor quotes the per-head rate. AO Mess sets everything else: the vendor's refund terms,
+// payment terms and AO Mess receipt are discarded. It may tick a charge, but not price it.
+check('vendor sets the per-head rate but no other money',
+    [$b['per_head_rate'], $b['discount'], $b['guest_charges'], $b['charges_total'], $b['grand_total']],
+    ['1500.00', '0.00', '300000.00', '0.00', '300000.00']);
+check('vendor cannot set the refund policy', [$b['refund_pct_30'], $b['refund_pct_7']], [null, null]);
+check('vendor cannot set the payment terms', $b['due_on'], 'Event Day');
+check("vendor cannot fill AO Mess's receipt record",
+    [$b['received_by'], $b['received_date'], $b['received_time']], [null, null, null]);
 $lines = $pdo->query("SELECT section, label, unit_snapshot, is_selected, qty, rate, amount, notes FROM booking_line_items WHERE booking_id = {$created['id']} ORDER BY section, id")->fetchAll();
-check('only ticked catalog items stored', array_column($lines, 'label'), ['Venue Charges', 'LED', 'Sofa']);
-check('charge line snapshot and amount', [$lines[0]['unit_snapshot'], $lines[0]['rate'], $lines[0]['amount']], ['fixed', '50000.00', '50000.00']);
+check('a vendor ticks a charge line; its decor and ops items are kept',
+    array_column($lines, 'label'), ['Venue Charges', 'LED', 'Sofa']);
+check("the vendor's posted rate is ignored: the catalog has none yet, so it counts Rs. 0",
+    [(int) $lines[0]['is_selected'], $lines[0]['rate'], $lines[0]['amount']], [1, null, '0.00']);
 check('decor line has no money', [$lines[1]['rate'], $lines[1]['amount'], $lines[1]['notes']], [null, '0.00', 'warm white']);
 check('ops line qty', (int) $lines[2]['qty'], 2);
 check('create audited', (int) $pdo->query("SELECT COUNT(*) FROM audit_log WHERE action = 'create' AND booking_id = {$created['id']}")->fetchColumn(), 1);
+
+// AO Mess now prices the charge the vendor ticked, and the money appears.
+$vendorVenueKey = 'l' . $pdo->query("SELECT id FROM booking_line_items WHERE booking_id = {$created['id']} AND section = 'charge'")->fetchColumn();
+$adminPost = ['vendor_id' => (string) $vendorRow['id']] + $post;
+unset($adminPost['lines']["c$venueCharge"]);
+$adminPost['lines'][$vendorVenueKey] = ['present' => '1', 'selected' => '1', 'rate' => '50000'];
+[, $priceErrs] = $submit($adminRow, (int) $created['id'], $ver0($created['id']), $adminPost);
+check("admin prices the vendor's draft", $priceErrs, []);
+$b = $bookingRow($created['id']);
+check('totals stored once AO Mess has priced it',
+    [$b['guest_charges'], $b['charges_total'], $b['grand_total'], $b['balance']],
+    ['300000.00', '50000.00', '350000.00', '350000.00']);
+check("the booking stays the vendor's", (int) $b['vendor_id'], (int) $vendorRow['id']);
+$lines = $pdo->query("SELECT label, unit_snapshot, rate, amount FROM booking_line_items WHERE booking_id = {$created['id']} AND section = 'charge'")->fetchAll();
+check('charge line snapshot and amount', [$lines[0]['label'], $lines[0]['unit_snapshot'], $lines[0]['rate'], $lines[0]['amount']],
+    ['Venue Charges', 'fixed', '50000.00', '50000.00']);
 
 // Reopen: existing lines by line id, other catalog items offered unselected.
 $formLines = booking_form_lines($pdo, $created['id']);
@@ -365,23 +405,26 @@ check('reopen offers an unticked catalog item', isset($formLines['c' . $catalogI
 $venueLineKey = 'l' . $pdo->query("SELECT id FROM booking_line_items WHERE booking_id = {$created['id']} AND section = 'charge'")->fetchColumn();
 $edit = ['guests' => '250', 'lines' => [$venueLineKey => ['present' => '1', 'selected' => '1', 'rate' => '50000']]] + $post;
 unset($edit['lines']["c$venueCharge"]);
-[$r, $errs] = $submit($vendorRow, $created['id'], 1, $edit);
+$vWas = $ver0($created['id']);
+[$r, $errs] = $submit($vendorRow, $created['id'], $vWas, $edit);
 check('edit with current version saves', $errs, []);
 $b = $bookingRow($created['id']);
-check('version bumped', (int) $b['version'], 2);
-check('guest charges recomputed', $b['guest_charges'], '375000.00');
+check('version bumped', (int) $b['version'], $vWas + 1);
+check('guest charges recomputed at the rate AO Mess set', $b['guest_charges'], '375000.00');
 $upd = json_decode($pdo->query("SELECT details FROM audit_log WHERE action = 'update' AND booking_id = {$created['id']} ORDER BY id DESC LIMIT 1")->fetchColumn(), true);
 check('update audited with old → new', $upd['changed']['guests'] ?? null, [200, 250]);
 
 // Stale version (the second browser tab).
-[$r, $errs] = $submit($vendorRow, $created['id'], 1, ['guests' => '999'] + $edit);
+$vNow = $ver0($created['id']);
+[$r, $errs] = $submit($vendorRow, $created['id'], $vWas, ['guests' => '999'] + $edit);
 check('stale version rejected', $errs, ['conflict' => true]);
-check('stale save changed nothing', [(int) $bookingRow($created['id'])['version'], (int) $bookingRow($created['id'])['guests']], [2, 250]);
+check('stale save changed nothing', [(int) $bookingRow($created['id'])['version'], (int) $bookingRow($created['id'])['guests']], [$vNow, 250]);
 
-// Discount above sub total: rejected, nothing written.
-[$r, $errs] = $submit($vendorRow, $created['id'], 2, ['discount' => '999999'] + $edit);
+// Discount above sub total: rejected, nothing written. Submitted by the admin, because the discount
+// is one of the fields a vendor cannot set at all.
+[$r, $errs] = $submit($adminRow, $created['id'], $vNow, ['vendor_id' => (string) $vendorRow['id'], 'discount' => '999999'] + $edit);
 check('discount > sub total rejected', array_keys($errs), ['discount']);
-check('rejected save wrote nothing', (int) $bookingRow($created['id'])['version'], 2);
+check('rejected save wrote nothing', (int) $bookingRow($created['id'])['version'], $vNow);
 
 // Validation: client name required, bad values listed per field.
 [$r, $errs] = $submit($vendorRow, null, null, ['client_name' => '', 'guests' => '-5', 'event_date' => '2026-02-30']);
@@ -411,7 +454,7 @@ check('vendor clash message hides the SLA number', strpos(venue_clash_messages($
 
 // A confirmed booking can't be saved as a draft.
 $pdo->exec("UPDATE bookings SET status = 'confirmed' WHERE id = {$created['id']}");
-[$r, $errs] = $submit($adminRow, $created['id'], 2, $edit);
+[$r, $errs] = $submit($adminRow, $created['id'], $ver0($created['id']), $edit);
 check('confirmed booking refused by the draft save', array_keys($errs), ['status']);
 
 // ---------------------------------------------------------------------------
@@ -448,6 +491,10 @@ $save = static function (array $user, int $id, array $post) use ($pdo, $bookingR
 $basePost = static fn(string $client, int $venue, string $date) => [
     'client_name' => $client, 'event_date' => $date, 'venue_id' => (string) $venue, 'guests' => '100', 'per_head_rate' => '1000',
 ];
+// A vendor-owned booking that carries money. AO Mess sets the charges and discount (ADMIN_ONLY_FIELDS),
+// so a priced booking is saved by the admin with the vendor named as its owner. A vendor raising its own
+// draft is covered separately above, including the fields it is not allowed to set.
+$vendorBooking = static fn(array $post) => $submit($adminRow, null, null, ['vendor_id' => (string) $vendorRow['id']] + $post);
 $confirmMsg = static fn(int $id, string $override = '') => $refused(fn() => confirm_booking($pdo, $adminRow, $id, $ver($id), $override));
 
 // Confirm: requirements.
@@ -457,8 +504,8 @@ check('confirm refused without a vendor', strpos((string) $confirmMsg($noVendor[
 check('confirm refused with a Rs. 0 net amount', strpos((string) $confirmMsg($zero['id']), 'net amount above Rs. 0') !== false, true);
 
 // Confirm: success, stale version, second booking on the same venue and date.
-[$A] = $submit($vendorRow, null, null, $basePost('Client A', $lawnB, '2027-01-10'));
-[$Bk] = $submit($vendorRow, null, null, $basePost('Client B', $lawnB, '2027-01-10'));
+[$A] = $vendorBooking($basePost('Client A', $lawnB, '2027-01-10'));
+[$Bk] = $vendorBooking($basePost('Client B', $lawnB, '2027-01-10'));
 check('confirm with a stale version', $refused(fn() => confirm_booking($pdo, $adminRow, $A['id'], $ver($A['id']) - 1, '')), 'CONFLICT');
 check('confirm A', $confirmMsg($A['id']), null);
 check('A is confirmed with version + 1', [$bookingRow($A['id'])['status'], $ver($A['id'])], ['confirmed', 2]);
@@ -473,12 +520,12 @@ check('override reason and conflict audited', [$ov['venue_override']['reason'] ?
     ['Client A moved to the evening slot', [$A['unique_id']]]);
 
 // Confirm: a cancelled booking on the same venue/date doesn't block; an inactive venue does.
-[$C1] = $submit($vendorRow, null, null, $basePost('Client C1', $hall, '2027-02-01'));
+[$C1] = $vendorBooking($basePost('Client C1', $hall, '2027-02-01'));
 $confirmMsg($C1['id']);
 cancel_booking($pdo, $adminRow, $C1['id'], $ver($C1['id']), 'Client withdrew');
-[$C2] = $submit($vendorRow, null, null, $basePost('Client C2', $hall, '2027-02-01'));
+[$C2] = $vendorBooking($basePost('Client C2', $hall, '2027-02-01'));
 check('a cancelled booking does not block confirmation', $confirmMsg($C2['id']), null);
-[$D] = $submit($vendorRow, null, null, $basePost('Client D', $hall, '2027-03-01'));
+[$D] = $vendorBooking($basePost('Client D', $hall, '2027-03-01'));
 $pdo->exec("UPDATE venues SET is_active = 0 WHERE id = $hall");
 check('confirm refused on a deactivated venue', strpos((string) $confirmMsg($D['id']), 'deactivated') !== false, true);
 $pdo->exec("UPDATE venues SET is_active = 1 WHERE id = $hall");
@@ -505,7 +552,7 @@ check('cancelled: balance 0, amount retained kept, reason stored', [$bk['status'
 check('cancel twice refused', strpos((string) $refused(fn() => cancel_booking($pdo, $adminRow, $Bk['id'], $ver($Bk['id']), 'again')), 'Only a draft or confirmed') === 0, true);
 
 // Delete a draft.
-[$E] = $submit($vendorRow, null, null, $basePost('Client E', $lawnB, '2027-04-01'));
+[$E] = $vendorBooking($basePost('Client E', $lawnB, '2027-04-01'));
 $files = [];
 foreach (['menu.pdf', 'scan.jpg'] as $orig) {
     $stored = bin2hex(random_bytes(16));
@@ -523,7 +570,7 @@ check('attachment files gone', [is_file(APP_ROOT . "/storage/uploads/{$files[0]}
 check('earlier audit rows kept', (int) $pdo->query("SELECT COUNT(*) FROM audit_log WHERE booking_id = {$E['id']} AND action = 'create'")->fetchColumn(), 1);
 $dd = json_decode($pdo->query("SELECT details FROM audit_log WHERE action = 'delete_draft' AND booking_id = {$E['id']}")->fetchColumn(), true);
 check('delete_draft row has the SLA number and file names', [$dd['unique_id'], $dd['attachments']], [$E['unique_id'], ['menu.pdf', 'scan.jpg']]);
-[$F] = $submit($vendorRow, null, null, $basePost('Client F', $lawnB, '2027-04-02'));
+[$F] = $vendorBooking($basePost('Client F', $lawnB, '2027-04-02'));
 $addPayment->execute([$F['id'], 'payment', '1000.00', 'cash', $adminId, date('Y-m-d H:i:s')]); // a voided payment
 check('draft with a (voided) payment cannot be deleted', strpos((string) $refused(fn() => delete_draft($pdo, $adminRow, $F['id'], $ver($F['id']))), 'payment records') !== false, true);
 check('confirmed booking cannot be deleted', $refused(fn() => delete_draft($pdo, $adminRow, $C2['id'], $ver($C2['id']))), 'Only a draft can be deleted.');
@@ -560,7 +607,7 @@ check('a voided signed copy does not count', $e['signed_copy'] ?? null, 'Upload 
 [$r, $e] = $save($adminRow, $C2['id'], ['guests' => '160'] + $c2Post); // clear the signatures directly (a direct edit)
 check('signatures cleared by a direct edit', [$e, $bookingRow($C2['id'])['client_sign_name']], [[], null]);
 // Venue move onto a confirmed booking's venue/date: needs an override.
-[$G] = $submit($vendorRow, null, null, $basePost('Client G', $lawnB, '2027-05-05'));
+[$G] = $vendorBooking($basePost('Client G', $lawnB, '2027-05-05'));
 $confirmMsg($G['id']);
 $moveTo = ['venue_id' => (string) $lawnB, 'event_date' => '2027-05-05', 'guests' => '160', 'amend_reason' => 'Moved to Lawn B'] + $c2Post;
 [$r, $e] = $save($adminRow, $C2['id'], $moveTo);
@@ -605,7 +652,7 @@ $money = static fn(int $id): array => array_values(array_intersect_key($bookingR
 $lastPayment = static fn(int $id): int => (int) $pdo->query("SELECT MAX(id) FROM payments WHERE booking_id = $id")->fetchColumn();
 
 // Test 7: two installments, void one → balance restored.
-[$P] = $submit($vendorRow, null, null, $basePost('Pay Client', $lawnB, '2027-09-09'));   // Rs. 1,00,000
+[$P] = $vendorBooking($basePost('Pay Client', $lawnB, '2027-09-09'));   // Rs. 1,00,000
 $confirmMsg($P['id']);
 $versionBefore = $ver($P['id']);
 check('installment 1', $pay($P['id'], '30,000'), null);
@@ -651,7 +698,7 @@ $pdo->exec('RENAME TABLE audit_log_off TO audit_log');
 check('forced error before commit rolls everything back', [$forced, $count($P['id']), $money($P['id'])], ['rolled back', $before[0], $before[1]]);
 
 // Cancelled booking: payments refused, refunds capped (tests 20, 21, 23, 32).
-[$R] = $submit($vendorRow, null, null, $basePost('Refund Client', $lawnB, '2027-10-10') + ['refund_pct_30' => '50']);
+[$R] = $vendorBooking($basePost('Refund Client', $lawnB, '2027-10-10') + ['refund_pct_30' => '50']);
 $pdo->exec("UPDATE bookings SET per_head_rate = 5000.00 WHERE id = {$R['id']}");  // Rs. 5,00,000
 db_transaction(fn(PDO $p) => recompute_booking_totals($p, $R['id']), $pdo);
 check('1,00,000 paid', $pay($R['id'], '1,00,000'), null);
@@ -716,7 +763,7 @@ $voidFile = static function (int $bookingId, int $attachmentId, string $reason =
     }
 };
 
-[$AT] = $submit($vendorRow, null, null, $basePost('Attach Client', $lawnB, '2027-11-11'));
+[$AT] = $vendorBooking($basePost('Attach Client', $lawnB, '2027-11-11'));
 $r = $attach($vendorRow, $AT['id'], null, 'menu.pdf');
 check('vendor attaches to their own draft', [$r['error'], is_int($r['id'])], [null, true]);
 check('file kept on disk', is_file(APP_ROOT . '/storage/uploads/' . $r['stored']), true);
@@ -768,22 +815,77 @@ $adminRefused = static function (callable $fn): ?string {
         return $e->getMessage();
     }
 };
-check('rename a used venue refused', strpos((string) $adminRefused(fn() => update_venue($pdo, $adminRow, $lawnB, 'Lawn B (East)', true, 20)), 'can\'t be renamed') !== false, true);
-check('deactivate a used venue', $adminRefused(fn() => update_venue($pdo, $adminRow, $lawnB, 'Lawn B', false, 20)), null);
+check('rename a used venue refused', strpos((string) $adminRefused(fn() => update_venue($pdo, $adminRow, $lawnB, 'Lawn B (East)', '', true, 20)), 'can\'t be renamed') !== false, true);
+check('deactivate a used venue', $adminRefused(fn() => update_venue($pdo, $adminRow, $lawnB, 'Lawn B', 'Ground floor, east wing', false, 20)), null);
 check('venue deactivated', (int) $pdo->query("SELECT is_active FROM venues WHERE id = $lawnB")->fetchColumn(), 0);
 check('venue_change audited', (int) $pdo->query("SELECT COUNT(*) FROM audit_log WHERE action = 'venue_change'")->fetchColumn() >= 1, true);
 check('delete a used venue refused', strpos((string) $adminRefused(fn() => delete_venue($pdo, $adminRow, $lawnB)), 'can\'t be deleted') !== false, true);
-$adminRefused(fn() => update_venue($pdo, $adminRow, $lawnB, 'Lawn B', true, 20)); // put it back
-check('create a venue', $adminRefused(fn() => create_venue($pdo, $adminRow, 'Terrace', '60')), null);
+$adminRefused(fn() => update_venue($pdo, $adminRow, $lawnB, 'Lawn B', 'Ground floor, east wing', true, 20)); // put it back
+check('create a venue', $adminRefused(fn() => create_venue($pdo, $adminRow, 'Terrace', 'Roof level', '60')), null);
 $terrace = (int) $pdo->query("SELECT id FROM venues WHERE name = 'Terrace'")->fetchColumn();
-check('duplicate venue name refused', strpos((string) $adminRefused(fn() => create_venue($pdo, $adminRow, 'Terrace', '70')), 'already a venue') !== false, true);
-check('rename an unused venue', $adminRefused(fn() => update_venue($pdo, $adminRow, $terrace, 'Roof Terrace', true, 60)), null);
+check('duplicate venue name refused', strpos((string) $adminRefused(fn() => create_venue($pdo, $adminRow, 'Terrace', 'Roof level', '70')), 'already a venue') !== false, true);
+check('rename an unused venue', $adminRefused(fn() => update_venue($pdo, $adminRow, $terrace, 'Roof Terrace', 'Roof level', true, 60)), null);
 check('delete an unused venue', $adminRefused(fn() => delete_venue($pdo, $adminRow, $terrace)), null);
 check('venue gone', (int) $pdo->query("SELECT COUNT(*) FROM venues WHERE id = $terrace")->fetchColumn(), 0);
 
+// Venue location: the booking keeps its own copy, so later edits to the venue never rewrite paperwork.
+$adminRefused(fn() => update_venue($pdo, $adminRow, $lawnA, 'Lawn A', 'Ground floor, west wing', true, 10));
+[$LOC] = $vendorBooking($basePost('Location Client', $lawnA, '2027-11-03'));
+check('venue location copied from the venue when the form leaves it blank',
+    $bookingRow($LOC['id'])['venue_location'], 'Ground floor, west wing');
+$adminRefused(fn() => update_venue($pdo, $adminRow, $lawnA, 'Lawn A', 'Moved: rear garden', true, 10));
+check('the booking keeps its own copy after the venue moves',
+    $bookingRow($LOC['id'])['venue_location'], 'Ground floor, west wing');
+check('the document shows the booking copy, not the venue',
+    document_data($pdo, $bookingRow($LOC['id']))['venue_location'], 'Ground floor, west wing');
+[$LOC2] = $vendorBooking($basePost('Typed Location', $lawnA, '2027-11-04')
+    + ['venue_location' => 'Marquee on the lawn']);
+check('a typed location wins over the venue default',
+    $bookingRow($LOC2['id'])['venue_location'], 'Marquee on the lawn');
+[, $locErrs] = $vendorBooking($basePost('Too Long', $lawnA, '2027-11-05')
+    + ['venue_location' => str_repeat('x', 151)]);
+check('an over-long location is refused', isset($locErrs['venue_location']), true);
+$adminRefused(fn() => update_venue($pdo, $adminRow, $lawnA, 'Lawn A', '', true, 10)); // put it back
+
+// Calendar: the month grid and the availability bars.
+$calStart = '2027-11-01';
+$calEnd = '2027-11-30';
+$calEntries = calendar_bookings($pdo, $calStart, $calEnd);
+$calDates = array_column($calEntries, 'event_date');
+check('the calendar finds bookings inside the month', in_array('2027-11-03', $calDates, true), true);
+check('the calendar stays inside the month',
+    array_filter($calDates, fn($d) => $d < $calStart || $d > $calEnd), []);
+check('the calendar is not scoped to one vendor (a venue clash must be visible)',
+    count(array_unique(array_column($calEntries, 'vendor_id'))) >= 1, true);
+check('a vendor may read its own calendar entry',
+    calendar_entry_is_own($vendorRow, ['vendor_id' => (int) $vendorRow['id']]), true);
+check("a vendor may not read another vendor's calendar entry",
+    calendar_entry_is_own($vendorRow, ['vendor_id' => (int) $vendorRow['id'] + 1000]), false);
+check('an admin may read every calendar entry',
+    calendar_entry_is_own($adminRow, ['vendor_id' => (int) $vendorRow['id'] + 1000]), true);
+$avail = venue_availability($pdo, $calEntries, 30);
+$availByVenue = array_column($avail, null, 'venue');
+check('availability counts days, and days booked + free = days in the month',
+    array_filter($avail, fn($r) => $r['days'] + $r['free'] !== 30), []);
+check('an unused active venue is still listed with 0 days',
+    isset($availByVenue['Pool side']) && $availByVenue['Pool side']['days'] === 0, true);
+
+// Approvals: the queue an admin sees, and the reasons a draft is not ready.
+check('pending_vendors lists only pending vendor accounts',
+    array_filter(pending_vendors($pdo), fn($v) => !isset($v['username'])), []);
+$pendingUsernames = array_column(pending_vendors($pdo), 'username');
+check('an active vendor is not in the approvals queue',
+    in_array($vendorRow['username'], $pendingUsernames, true), false);
+[$NOTREADY] = $submit($adminRow, null, null, ['client_name' => 'Not Ready']);
+check('a draft with nothing filled in reports every blocker',
+    confirm_requirement_problems($pdo, $bookingRow($NOTREADY['id'])),
+    ['an event date', 'a venue', 'a net amount above Rs. 0']);
+check('a complete draft reports no blockers',
+    confirm_requirement_problems($pdo, $bookingRow($LOC2['id'])), []);
+
 // Catalog: renaming, re-rating and changing the unit never touch existing bookings (checkpoint, plan test 17).
 $stageId = $catalogId('Stage Charges');
-[$CAT] = $submit($vendorRow, null, null, $basePost('Catalog Client', $lawnA, '2027-12-12') + [
+[$CAT] = $vendorBooking($basePost('Catalog Client', $lawnA, '2027-12-12') + [
     'lines' => ["c$stageId" => ['present' => '1', 'selected' => '1', 'rate' => '20000']]]);
 $lineBefore = $pdo->query("SELECT label, unit_snapshot, rate, amount FROM booking_line_items WHERE booking_id = {$CAT['id']} AND catalog_id = $stageId")->fetch();
 check('booking line snapshot', [$lineBefore['label'], $lineBefore['unit_snapshot'], $lineBefore['amount']], ['Stage Charges', 'fixed', '20000.00']);

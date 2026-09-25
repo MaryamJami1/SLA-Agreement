@@ -42,7 +42,11 @@ Then open **phpMyAdmin** for that database and import, in this order:
 1. `database/schema.sql`
 2. `database/seed.sql`
 
-After importing, the database has 11 tables and one admin account.
+After importing, the database has 11 tables and one admin account. `schema.sql` already contains
+every migration, so a **new** install does not import anything from `database/migrations/`.
+
+Upgrading an existing site is different — see "Applying a schema change later" below. After any
+import, **Checks** tells you whether the database is up to date with the files.
 
 ---
 
@@ -135,6 +139,38 @@ As the admin:
 
 ---
 
+## Installing in a sub-folder (e.g. `https://alfirdusi.com.pk/event`)
+
+Use this instead of step 4 when the app shares a domain with another site and lives under a path.
+Everything ends up inside `public_html`, so the app runs with `ALLOW_APP_IN_WEBROOT` on, and the
+folder's own `.htaccess` sends every request to `public/`.
+
+1. In File Manager, create `public_html/event/`.
+2. Upload into it `app/`, `config/`, `database/`, `public/` and `storage/`, **as folders** (not the
+   contents of `public/` this time), including their hidden `.htaccess` / `.user.ini` files:
+
+   ```
+   public_html/event/
+     .htaccess       <- from deploy/event/.htaccess
+     app/  config/  database/  public/  storage/
+   ```
+3. Upload `deploy/event/.htaccess` into `public_html/event/`.
+4. Edit `public_html/event/public/.htaccess` and change the last line to
+   `ErrorDocument 404 /event/index.php` (otherwise missing pages fall through to the main site).
+5. In `config/config.php` (step 5) use:
+
+   ```php
+   'APP_ENV'              => 'production',
+   'BASE_URL'             => '/event',
+   'CANONICAL_HOST'       => 'alfirdusi.com.pk',   // or 'www.alfirdusi.com.pk' if the site uses www
+   'ALLOW_APP_IN_WEBROOT' => true,
+   'DB_PORT'              => 3306,
+   ```
+6. Carry on with steps 6–8. Then confirm these return **403 or 404**, never file contents:
+   `/event/config/config.php`, `/event/app/bootstrap.php`, `/event/database/schema.sql`,
+   `/event/storage/logs/`. On **Checks**, the "App code above the web root" and the two
+   "web root" `.htaccess` / `.user.ini` lines show WARN in this layout; that is expected.
+
 ## Backups
 
 - **Automatic:** hPanel → Files → Backups. Hostinger keeps regular backups; check the schedule matches
@@ -147,9 +183,16 @@ As the admin:
 ## Applying a schema change later
 
 1. Take a phpMyAdmin export of the live database (above).
-2. Import the new numbered file from `database/migrations/` (for example `002_….sql`).
-3. Upload the changed PHP files.
-4. Open **Checks** again and confirm the schema version has increased.
+2. Find where the database is now: in phpMyAdmin run
+   `SELECT version, applied_at FROM schema_version ORDER BY version;`
+3. Import each numbered file from `database/migrations/` the database does not already list, in
+   order (for example `002_….sql`).
+4. Upload the changed PHP files.
+5. Open **Checks** again. "Schema is up to date" must pass — if it fails, it names the version the
+   files expect, and a migration still needs importing.
+
+Migration `002_venue_location.sql` adds `venues.location` and `bookings.venue_location`. Until it is
+imported, every page that touches a venue will fail, so import it before uploading the PHP files.
 
 ## If something goes wrong
 

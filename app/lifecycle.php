@@ -113,6 +113,47 @@ function confirm_requirement_problems(PDO $pdo, array $b, bool $venueMayBeInacti
     return $problems;
 }
 
+/**
+ * Commercial terms worth reading twice before signing. These never block a confirmation — the admin
+ * may well intend every one of them — they are surfaced so nothing unusual is agreed by accident
+ * among forty-odd fields.
+ *
+ * @return list<string>
+ */
+function commercial_terms_notices(array $b): array
+{
+    $notices = [];
+    // decimal_to_percent() returns hundredths of a percent, the same scale as paisa: 100% is 10000.
+    $r30 = decimal_to_percent($b['refund_pct_30']);
+    $r7 = decimal_to_percent($b['refund_pct_7']);
+    $show = static fn(int $hundredths) => rtrim(rtrim(number_format($hundredths / 100, 2, '.', ''), '0'), '.');
+    $FULL = 10000;
+
+    if ($r30 !== null && $r30 >= $FULL) {
+        $notices[] = 'Cancelling more than 30 days before returns ' . $show($r30) . '% — the advance is fully refundable.';
+    }
+    if ($r7 !== null && $r7 >= $FULL) {
+        $notices[] = 'Cancelling 7–30 days before returns ' . $show($r7) . '% — the advance is fully refundable.';
+    }
+    if ($r30 !== null && $r7 !== null && $r7 > $r30) {
+        $notices[] = 'The 7–30 day refund (' . $show($r7) . '%) is higher than the 30+ day refund ('
+            . $show($r30) . '%), which is the wrong way round.';
+    }
+    if ($r30 === null && $r7 === null) {
+        $notices[] = 'No refund policy is set, so nothing is agreed about cancellation.';
+    }
+    if ($b['due_on'] === 'As agreed') {
+        $notices[] = 'The balance is due “as agreed”, not on the event day.';
+    }
+    if (decimal_to_paisa($b['discount']) > 0) {
+        $notices[] = 'A discount of ' . format_rs(decimal_to_paisa($b['discount'])) . ' is applied.';
+    }
+    if ((int) $b['guests'] > 0 && decimal_to_paisa($b['per_head_rate']) === 0) {
+        $notices[] = 'The per-head rate is Rs. 0, so the ' . (int) $b['guests'] . ' guests carry no catering charge.';
+    }
+    return $notices;
+}
+
 // ---------------------------------------------------------------------------
 // Confirm (plan Section 9, race-safe)
 // ---------------------------------------------------------------------------

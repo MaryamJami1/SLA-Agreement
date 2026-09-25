@@ -73,6 +73,16 @@ $notInnoDb = (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables W
 $yesNo($notInnoDb === 0, 'Database', 'InnoDB everywhere', 'all tables use InnoDB', "$notInnoDb table(s) are not InnoDB — transactions would not work");
 $version = (int) $pdo->query('SELECT COALESCE(MAX(version), 0) FROM schema_version')->fetchColumn();
 $yesNo($version >= 1, 'Database', 'Schema version recorded', "version $version", 'no schema_version row — re-import schema.sql');
+// The newest migration on disk. If the database is behind it, a migration was uploaded but never
+// imported — the usual cause of "the new field isn't saving" after a deployment.
+$newestMigration = 1;
+foreach (glob(APP_ROOT . '/database/migrations/*.sql') ?: [] as $file) {
+    if (preg_match('/^(\d+)_/', basename($file), $m)) {
+        $newestMigration = max($newestMigration, (int) $m[1]);
+    }
+}
+$yesNo($version >= $newestMigration, 'Database', 'Schema is up to date', "version $version is the newest",
+    "the database is at version $version but the files expect $newestMigration — import the missing file(s) from database/migrations/");
 $tz = (string) $pdo->query('SELECT @@session.time_zone')->fetchColumn();
 $yesNo($tz === '+05:00', 'Database', 'Connection time zone', $tz, "$tz — expected +05:00");
 $sqlMode = (string) $pdo->query('SELECT @@session.sql_mode')->fetchColumn();

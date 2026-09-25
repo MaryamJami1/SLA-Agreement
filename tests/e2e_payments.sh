@@ -80,7 +80,7 @@ contains "Refunds are recorded only after a booking is cancelled." "no refund on
 req a GET /booking/list.php; contains "Rs. -5,000" "registry shows the negative balance"
 
 echo "== Vendor view"
-req v GET "/booking/form.php?id=$ID"; contains "PAYMENTS &amp; REFUNDS" "vendor sees the payments list"
+req v GET "/booking/form.php?id=$ID"; lacks "PAYMENTS &amp; REFUNDS" "vendor does not see the payments section"
 lacks "Record a payment" "vendor has no payment form"; lacks 'name="payment_id"' "vendor has no void buttons"
 csrf v "/booking/form.php?id=$ID"
 req v POST /payments/add.php "_csrf=$TOKEN" "form_token=x" "booking_id=$ID" "kind=payment" "amount=1" "paid_on=$TODAY" "method=cash"

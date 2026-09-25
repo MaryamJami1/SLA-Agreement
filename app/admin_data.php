@@ -20,7 +20,7 @@ class AdminRefused extends RuntimeException {}
 
 function venues_with_usage(PDO $pdo): array
 {
-    return $pdo->query('SELECT v.id, v.name, v.is_active, v.sort_order,
+    return $pdo->query('SELECT v.id, v.name, v.location, v.is_active, v.sort_order,
                                (SELECT COUNT(*) FROM bookings b WHERE b.venue_id = v.id) AS bookings
                           FROM venues v ORDER BY v.sort_order, v.name')->fetchAll();
 }
@@ -37,6 +37,19 @@ function clean_name($raw, int $max, string $label): string
     return $name;
 }
 
+/** Same as clean_name(), but an empty value is allowed and stored as NULL. */
+function clean_optional_name($raw, int $max, string $label): ?string
+{
+    $value = trim(is_string($raw) ? $raw : '');
+    if ($value === '') {
+        return null;
+    }
+    if (mb_strlen($value) > $max) {
+        throw new AdminRefused(ucfirst($label) . " can be at most $max characters.");
+    }
+    return $value;
+}
+
 function clean_sort_order($raw): int
 {
     try {
@@ -46,15 +59,18 @@ function clean_sort_order($raw): int
     }
 }
 
-function create_venue(PDO $pdo, array $admin, $nameRaw, $sortRaw): string
+function create_venue(PDO $pdo, array $admin, $nameRaw, $locationRaw, $sortRaw): string
 {
     $name = clean_name($nameRaw, 100, 'venue name');
+    $location = clean_optional_name($locationRaw, 150, 'venue location');
     $sort = clean_sort_order($sortRaw);
     try {
-        return db_transaction(static function (PDO $pdo) use ($admin, $name, $sort) {
-            $pdo->prepare('INSERT INTO venues (name, is_active, sort_order) VALUES (?, 1, ?)')->execute([$name, $sort]);
+        return db_transaction(static function (PDO $pdo) use ($admin, $name, $location, $sort) {
+            $pdo->prepare('INSERT INTO venues (name, location, is_active, sort_order) VALUES (?, ?, 1, ?)')
+                ->execute([$name, $location, $sort]);
             $id = (int) $pdo->lastInsertId();
-            audit($pdo, 'venue_change', (int) $admin['id'], null, ['venue_id' => $id, 'created' => ['name' => $name, 'sort_order' => $sort]]);
+            audit($pdo, 'venue_change', (int) $admin['id'], null,
+                ['venue_id' => $id, 'created' => ['name' => $name, 'location' => $location, 'sort_order' => $sort]]);
             return $name;
         }, $pdo);
     } catch (PDOException $e) {
@@ -66,15 +82,17 @@ function create_venue(PDO $pdo, array $admin, $nameRaw, $sortRaw): string
 }
 
 /**
- * Rename, re-sort or activate/deactivate a venue. A venue any booking has ever used can't be renamed
- * (bookings point at the row, so its meaning must not change) — only deactivated.
+ * Rename, re-locate, re-sort or activate/deactivate a venue. A venue any booking has ever used can't
+ * be renamed (bookings point at the row, so its meaning must not change) — only deactivated.
+ * The location is free to change: each booking stored its own copy, so history is unaffected.
  */
-function update_venue(PDO $pdo, array $admin, int $venueId, $nameRaw, bool $isActive, $sortRaw): string
+function update_venue(PDO $pdo, array $admin, int $venueId, $nameRaw, $locationRaw, bool $isActive, $sortRaw): string
 {
     $name = clean_name($nameRaw, 100, 'venue name');
+    $location = clean_optional_name($locationRaw, 150, 'venue location');
     $sort = clean_sort_order($sortRaw);
     try {
-        return db_transaction(static function (PDO $pdo) use ($admin, $venueId, $name, $isActive, $sort) {
+        return db_transaction(static function (PDO $pdo) use ($admin, $venueId, $name, $location, $isActive, $sort) {
             $st = $pdo->prepare('SELECT * FROM venues WHERE id = ? FOR UPDATE');
             $st->execute([$venueId]);
             $venue = $st->fetch();
@@ -85,10 +103,10 @@ function update_venue(PDO $pdo, array $admin, int $venueId, $nameRaw, bool $isAc
                 throw new AdminRefused("“{$venue['name']}” is used by at least one booking, so it can't be renamed. "
                     . 'Deactivate it and create the new name as a separate venue.');
             }
-            $pdo->prepare('UPDATE venues SET name = ?, is_active = ?, sort_order = ? WHERE id = ?')
-                ->execute([$name, $isActive ? 1 : 0, $sort, $venueId]);
+            $pdo->prepare('UPDATE venues SET name = ?, location = ?, is_active = ?, sort_order = ? WHERE id = ?')
+                ->execute([$name, $location, $isActive ? 1 : 0, $sort, $venueId]);
             $changed = [];
-            foreach (['name' => $name, 'is_active' => $isActive ? 1 : 0, 'sort_order' => $sort] as $field => $value) {
+            foreach (['name' => $name, 'location' => $location, 'is_active' => $isActive ? 1 : 0, 'sort_order' => $sort] as $field => $value) {
                 if ((string) $venue[$field] !== (string) $value) {
                     $changed[$field] = [$venue[$field], $value];
                 }
@@ -213,4 +231,63 @@ function update_catalog_item(PDO $pdo, array $admin, int $itemId, array $data): 
         }
         return $item['name'];
     }, $pdo);
+}
+
+// ---------------------------------------------------------------------------
+// Vendor accounts
+//
+// Shared by the Vendors page and the Approvals page, so both screens apply exactly the same rules.
+// ---------------------------------------------------------------------------
+
+/** Allowed status changes: action => [statuses it can start from, new status, audit action]. */
+const VENDOR_TRANSITIONS = [
+    'approve' => [['pending', 'disabled'], 'active', 'vendor_approve'],
+    'disable' => [['pending', 'active'], 'disabled', 'vendor_disable'],
+];
+
+/**
+ * Approve, disable or reset the password of one vendor account, in a single transaction.
+ *
+ * @return array{0: string, 1: string, 2?: array{username: string, password: string}}
+ *         [flash type, message] and, for a password reset, the temporary password to show once.
+ */
+function apply_vendor_action(PDO $pdo, array $admin, int $vendorId, string $action): array
+{
+    return db_transaction(static function (PDO $pdo) use ($vendorId, $action, $admin) {
+        $st = $pdo->prepare("SELECT id, username, status FROM users WHERE id = ? AND role = 'vendor' FOR UPDATE");
+        $st->execute([$vendorId]);
+        $vendor = $st->fetch();
+        if (!$vendor) {
+            return ['error', 'That vendor account no longer exists.'];
+        }
+
+        if (isset(VENDOR_TRANSITIONS[$action])) {
+            [$from, $to, $auditAction] = VENDOR_TRANSITIONS[$action];
+            if (!in_array($vendor['status'], $from, true)) {
+                return ['error', "“{$vendor['username']}” is {$vendor['status']}; that action doesn't apply."];
+            }
+            $pdo->prepare('UPDATE users SET status = ? WHERE id = ?')->execute([$to, $vendorId]);
+            audit($pdo, $auditAction, (int) $admin['id'], null,
+                ['vendor_id' => $vendorId, 'username' => $vendor['username'], 'status' => [$vendor['status'], $to]]);
+            return ['ok', "“{$vendor['username']}” is now $to."];
+        }
+
+        if ($action === 'reset') {
+            $temp = generate_temp_password();
+            $pdo->prepare('UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?')
+                ->execute([password_hash($temp, PASSWORD_DEFAULT), $vendorId]);
+            audit($pdo, 'password_reset', (int) $admin['id'], null, ['vendor_id' => $vendorId, 'username' => $vendor['username']]);
+            return ['ok', "Password reset for “{$vendor['username']}”.", ['username' => $vendor['username'], 'password' => $temp]];
+        }
+
+        return ['error', 'Unknown action.'];
+    }, $pdo);
+}
+
+/** Vendor accounts still waiting for a decision, oldest request first. */
+function pending_vendors(PDO $pdo): array
+{
+    return $pdo->query("SELECT id, username, name, firm_name, rep_name, contact, created_at
+                          FROM users WHERE role = 'vendor' AND status = 'pending'
+                         ORDER BY created_at, username")->fetchAll();
 }

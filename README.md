@@ -14,10 +14,10 @@ Hostinger shared hosting.
 ```
 public/      the only web-accessible folder (its CONTENTS become public_html)
   auth/      sign in, register, change password
-  booking/   registry, form, save, confirm, complete, cancel, delete
+  booking/   registry, calendar, form, save, confirm, complete, cancel, delete
   payments/  add and void payments and refunds
   documents/ agreement, invoice, operations sheet, upload, download
-  admin/     vendors, catalog, venues, deployment checks
+  admin/     approvals, vendors, catalog, venues, deployment checks
   assets/    css, js, logo
 app/         all application code — never web-accessible
   bootstrap.php   config, errors, web-root guard, session, CSRF, current user
@@ -45,6 +45,13 @@ docs/        DEPLOY.md, GO_LIVE_CHECKLIST.md, TESTING.md
   bookings are read-only for vendors; the admin can make direct edits, while anything that changes
   the agreed terms is an amendment (reason required, signed copy on file, `Rev N`, signatures cleared).
 - **Payments** are never edited or deleted, only voided, and refunds only apply to cancelled bookings.
+- **Venue locations** are snapshotted onto the booking, like catalog labels: the Venues page can move
+  a venue at any time without rewriting the paperwork of bookings already taken.
+- **The calendar** is deliberately not scoped to the signed-in vendor — a vendor who cannot see that
+  Lawn A is taken will promise it anyway. Other vendors' bookings show the venue and status only.
+- **Approvals** gathers what is waiting on the admin: vendor accounts asking to join (decided there)
+  and draft bookings, each with the reason it cannot be confirmed yet. Confirming still happens on
+  the booking, where the venue is re-checked at that moment.
 - **The audit log is append-only.**
 
 ## Local development

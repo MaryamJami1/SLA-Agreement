@@ -50,7 +50,9 @@ require APP_ROOT . '/app/views/layout_top.php';
 require APP_ROOT . '/app/views/booking_form.php';
 if ($booking) {
     require APP_ROOT . '/app/views/booking_actions.php';
-    require APP_ROOT . '/app/views/booking_payments.php';
+    if ($viewer['role'] === 'admin') {
+        require APP_ROOT . '/app/views/booking_payments.php';   // payments and refunds are admin-only
+    }
     require APP_ROOT . '/app/views/booking_attachments.php';
 }
 require APP_ROOT . '/app/views/layout_bottom.php';
