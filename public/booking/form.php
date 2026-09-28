@@ -41,7 +41,8 @@ $vendors = $viewer['role'] === 'admin' ? active_vendors($pdo) : [];
 $venues = venues_for_form($pdo, $booking ? ($booking['venue_id'] === null ? null : (int) $booking['venue_id']) : null);
 $conflict = false;
 $clashMessages = $booking ? venue_clash_messages(
-    venue_clashes($pdo, (int) $booking['id'], $booking['venue_id'] === null ? null : (int) $booking['venue_id'], $booking['event_date']),
+    venue_clashes($pdo, (int) $booking['id'], $booking['venue_id'] === null ? null : (int) $booking['venue_id'], $booking['event_date'],
+        $booking['slot_id'] === null ? null : (int) $booking['slot_id']),
     $booking['event_date'], $viewer['role'] === 'admin') : [];
 
 $pageTitle = $booking ? $booking['unique_id'] : 'New booking';
@@ -50,7 +51,9 @@ require APP_ROOT . '/app/views/layout_top.php';
 require APP_ROOT . '/app/views/booking_form.php';
 if ($booking) {
     require APP_ROOT . '/app/views/booking_actions.php';
-    require APP_ROOT . '/app/views/booking_payments.php';
+    if ($viewer['role'] === 'admin') {
+        require APP_ROOT . '/app/views/booking_payments.php';   // payments and refunds are admin-only
+    }
     require APP_ROOT . '/app/views/booking_attachments.php';
 }
 require APP_ROOT . '/app/views/layout_bottom.php';

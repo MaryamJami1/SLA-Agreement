@@ -10,6 +10,89 @@
     }
   });
 
+  // ---- Alert dialog --------------------------------------------------------------------------
+  // A warning the user must not scroll past — a venue already taken on that date — is shown as a
+  // banner AND raised in a modal dialog, so it cannot be missed. The banner stays on the page once
+  // the dialog is dismissed, and is what a browser with JavaScript off still shows on its own.
+  function openAlertDialog(title, messages) {
+    var lastFocus = document.activeElement;
+
+    var overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    var dialog = document.createElement('div');
+    dialog.className = 'dialog';
+    dialog.setAttribute('role', 'alertdialog');
+    dialog.setAttribute('aria-modal', 'true');
+    dialog.setAttribute('aria-labelledby', 'dialog-title');
+
+    var head = document.createElement('div');
+    head.className = 'dialog-head';
+    var icon = document.createElement('span');
+    icon.className = 'dialog-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = '!';
+    var heading = document.createElement('h2');
+    heading.className = 'dialog-title';
+    heading.id = 'dialog-title';
+    heading.textContent = title;
+    head.appendChild(icon);
+    head.appendChild(heading);
+
+    var body = document.createElement('div');
+    body.className = 'dialog-body';
+    messages.forEach(function (text) {
+      var p = document.createElement('p');
+      p.textContent = text;          // textContent, never innerHTML: venue names are user-entered
+      body.appendChild(p);
+    });
+
+    var foot = document.createElement('div');
+    foot.className = 'dialog-foot';
+    var ok = document.createElement('button');
+    ok.type = 'button';
+    ok.className = 'btn primary';
+    ok.textContent = 'Got it';
+    foot.appendChild(ok);
+
+    dialog.appendChild(head);
+    dialog.appendChild(body);
+    dialog.appendChild(foot);
+    overlay.appendChild(dialog);
+
+    function close() {
+      document.removeEventListener('keydown', onKey, true);
+      overlay.remove();
+      document.body.classList.remove('dialog-open');
+      if (lastFocus && lastFocus.focus) { lastFocus.focus(); }
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') { close(); }
+      // One focusable control, so keep Tab inside the dialog.
+      if (e.key === 'Tab') { e.preventDefault(); ok.focus(); }
+    }
+
+    ok.addEventListener('click', close);
+    overlay.addEventListener('mousedown', function (e) { if (e.target === overlay) { close(); } });
+    document.addEventListener('keydown', onKey, true);
+
+    document.body.appendChild(overlay);
+    document.body.classList.add('dialog-open');
+    ok.focus();
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    var urgent = document.querySelectorAll('.flash.js-alert');
+    if (!urgent.length) {
+      return;
+    }
+    var messages = Array.prototype.map.call(urgent, function (el) {
+      return (el.textContent || '').replace(/\s+/g, ' ').trim();
+    });
+    var title = urgent[0].getAttribute('data-alert-title') || 'Please check this';
+    openAlertDialog(title, messages);
+  });
+
   // Print button on the document pages.
   document.addEventListener("DOMContentLoaded", function () {
     var printBtn = document.getElementById("print-btn");
@@ -78,7 +161,6 @@
       setText('t-sub', formatRs(sub));
       setText('t-grand', formatRs(grand));
       setText('guests-readout', String(guests));
-      setText('total-staff', String(toInt(field('waiters') && field('waiters').value) + toInt(field('chefs') && field('chefs').value)));
     }
 
     // ---- "If Other, specify" fields --------------------------------------------------------
@@ -87,6 +169,16 @@
       if (!target) { return; }
       var isOther = select.value === 'Other' || select.value === 'other';
       target.closest('.field').classList.toggle('hidden', !isOther);
+    }
+
+    // ---- Venue location follows the chosen venue ---------------------------------------------
+    // The server stores whatever is in the box (and falls back to the venue's own location when it
+    // is left empty), so this only saves typing. A location the user has edited by hand is kept.
+    function syncVenueLocation(select) {
+      var target = document.getElementById(select.getAttribute('data-location-target'));
+      if (!target || target.getAttribute('data-touched') === '1') { return; }
+      var option = select.options[select.selectedIndex];
+      target.value = (option && option.getAttribute('data-location')) || '';
     }
 
     // ---- Event weekday from the date ---------------------------------------------------------
@@ -103,9 +195,368 @@
     form.querySelectorAll('select[data-other]').forEach(function (s) {
       s.addEventListener('change', function () { syncOther(s); });
     });
+    form.querySelectorAll('select[data-location-target]').forEach(function (s) {
+      var target = document.getElementById(s.getAttribute('data-location-target'));
+      if (target) {
+        target.addEventListener('input', function () { target.setAttribute('data-touched', '1'); });
+      }
+      s.addEventListener('change', function () { syncVenueLocation(s); });
+    });
     form.addEventListener('input', recalc);
     form.addEventListener('change', recalc);
     if (field('event_date')) { field('event_date').addEventListener('change', syncDay); }
+
+    // ---- Event slots follow the date and venue -----------------------------------------------
+    // The server renders the slots for the date and venue the page opened with; this refreshes them
+    // from booking/slots.php whenever either changes. Slots come from the admin's configuration for
+    // that venue, so nothing about them is known here. Only availability comes back, never who holds
+    // a slot. The save re-checks the slot under a lock: this is guidance, not the guard.
+    var slotField = document.getElementById('slot-field');
+    var slotGrid = document.getElementById('slot-grid');
+    var slotMsg = document.getElementById('slot-message');
+    var slotRequest = 0;
+    var MSG_PICK = 'Choose the date of the event and a venue to see the available slots.';
+    var MSG_NONE_SET = 'No event slots are set up for this venue yet. Choose another venue.';
+    var MSG_ALL_BOOKED = 'No time slots available for this venue on the selected date. Please select another date or venue.';
+
+    function validDate(d) { return /^\d{4}-\d{2}-\d{2}$/.test(d || ''); }
+    function setSlotMessage(text, isError) {
+      if (!slotMsg) { return; }
+      slotMsg.textContent = text || '';
+      slotMsg.hidden = !text;
+      slotMsg.classList.toggle('is-error', !!isError);
+    }
+    function chosenSlot() {
+      var r = slotGrid && slotGrid.querySelector('input[name="slot_id"]:checked');
+      return r ? r.value : '';
+    }
+    function slotCard(s, chosen) {
+      var selectable = s.available || s.own;
+      var label = document.createElement('label');
+      label.className = 'slot-card' + (selectable ? '' : ' is-booked');
+      var input = document.createElement('input');
+      input.type = 'radio';
+      input.name = 'slot_id';
+      input.value = String(s.id);
+      input.disabled = !selectable;
+      input.checked = selectable && String(s.id) === chosen;
+      var icon = document.createElement('span');
+      icon.className = 'slot-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.textContent = s.icon || '';
+      var body = document.createElement('span');
+      body.className = 'slot-body';
+      var name = document.createElement('span');
+      name.className = 'slot-name';
+      name.textContent = s.name;             // textContent, never innerHTML: names are admin-entered
+      var time = document.createElement('span');
+      time.className = 'slot-time';
+      time.textContent = s.time;
+      body.appendChild(name);
+      body.appendChild(time);
+      var state = document.createElement('span');
+      state.className = 'slot-state';
+      state.textContent = s.own && s.disabled ? 'Your booking · no longer offered' : (selectable ? 'Available' : 'Booked');
+      label.appendChild(input);
+      label.appendChild(icon);
+      label.appendChild(body);
+      label.appendChild(state);
+      return label;
+    }
+    function renderSlots(slots, chosen) {
+      slotGrid.textContent = '';
+      slots.forEach(function (s) { slotGrid.appendChild(slotCard(s, chosen)); });
+      slotGrid.hidden = slots.length === 0;
+      var open = slots.filter(function (s) { return s.available || s.own; }).length;
+      if (!slots.length) {
+        setSlotMessage(MSG_NONE_SET);
+      } else if (!open) {
+        setSlotMessage(MSG_ALL_BOOKED);
+      } else if (chosen && !chosenSlot()) {
+        setSlotMessage('The slot you had chosen is not available on this date. Choose another slot.', true);
+      } else {
+        setSlotMessage('');
+      }
+      refreshSteps();
+    }
+    function refreshSlots() {
+      if (!slotField) { return; }
+      var venue = field('venue_id');
+      var v = venue ? venue.value : '';
+      var d = field('event_date') ? field('event_date').value : '';
+      var isOther = v === 'other';
+      slotField.classList.toggle('hidden', isOther);
+      var start = form.querySelector('.start-time-field');
+      if (start) { start.classList.toggle('hidden', !isOther); }
+      if (isOther) { return; }
+
+      var chosen = chosenSlot();
+      var context = document.getElementById('slot-context');
+      if (!/^\d+$/.test(v) || !validDate(d)) {
+        slotRequest++;                        // drop any answer still on its way
+        slotGrid.textContent = '';
+        slotGrid.hidden = true;
+        if (context) { context.textContent = ''; }
+        setSlotMessage(MSG_PICK);
+        refreshSteps();
+        return;
+      }
+      if (context) {
+        var parts = d.split('-');
+        context.textContent = venue.options[venue.selectedIndex].textContent.trim() + ' · ' +
+          new Date(+parts[0], +parts[1] - 1, +parts[2])
+            .toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+      }
+      var req = ++slotRequest;
+      slotField.classList.add('is-loading');
+      slotField.setAttribute('aria-busy', 'true');
+      var booking = slotField.getAttribute('data-booking');
+      var q = '?venue_id=' + encodeURIComponent(v) + '&date=' + encodeURIComponent(d) +
+        (booking ? '&booking=' + encodeURIComponent(booking) : '');
+      fetch(slotField.getAttribute('data-endpoint') + q, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+        .then(function (r) {
+          if (!r.ok) { throw new Error('HTTP ' + r.status); }
+          return r.json();
+        })
+        .then(function (data) {
+          if (req !== slotRequest) { return; }  // the user has moved on to another date or venue
+          renderSlots(data.slots || [], chosen);
+        })
+        .catch(function () {
+          if (req !== slotRequest) { return; }
+          setSlotMessage('Couldn’t load the slots for this venue. Check the connection and change the date or venue to try again.', true);
+        })
+        .then(function () {
+          if (req !== slotRequest) { return; }
+          slotField.classList.remove('is-loading');
+          slotField.removeAttribute('aria-busy');
+        });
+    }
+    // "Continue" from the Event step needs a slot once a venue and date are chosen (the save insists too).
+    function slotMissing() {
+      if (!slotField || slotField.classList.contains('hidden') || chosenSlot()) { return false; }
+      var v = field('venue_id') ? field('venue_id').value : '';
+      return /^\d+$/.test(v) && validDate(field('event_date') && field('event_date').value);
+    }
+    if (slotField) {
+      if (field('venue_id')) { field('venue_id').addEventListener('change', refreshSlots); }
+      if (field('event_date')) { field('event_date').addEventListener('change', refreshSlots); }
+      slotGrid.addEventListener('change', function () {
+        if (slotMsg && slotMsg.classList.contains('is-error')) { setSlotMessage(''); }
+      });
+    }
+
+    // ---- The wizard: five steps over one form -----------------------------------------------
+    // The sheet is one long form of ~16 sections, and it must stay one form: a single POST is what
+    // reserves the SLA number and writes the totals. So the steps are presentation only — every
+    // section stays in the DOM, and the `is-wizard` class added here (never in the markup) is what
+    // hides the inactive ones. No script, no hiding: the whole agreement shows, just as it prints.
+    var stepper = form.querySelector('.wizard-steps');
+    var panels = Array.prototype.slice.call(form.querySelectorAll('.step-panel'));
+    var blocks = Array.prototype.slice.call(form.querySelectorAll('.block[data-nav]'));
+    var stepBtns = stepper ? Array.prototype.slice.call(stepper.querySelectorAll('.step')) : [];
+    var prevBtn = form.querySelector('[data-wizard="prev"]');
+    var nextBtn = form.querySelector('[data-wizard="next"]');
+    var saveBtn = form.querySelector('button[type="submit"]');
+    var position = document.getElementById('step-position');
+    var current = 0;
+
+    function realInputs(block) {
+      return Array.prototype.filter.call(
+        block.querySelectorAll('input, select, textarea'),
+        function (el) { return el.type !== 'hidden' && el.name; });
+    }
+    function filledCount(block) {
+      return realInputs(block).filter(function (el) {
+        if (el.type === 'checkbox' || el.type === 'radio') { return el.checked; }
+        return String(el.value || '').trim() !== '';
+      }).length;
+    }
+    function errorCount(block) { return block.querySelectorAll('.field-error').length; }
+    function setCollapsed(block, collapsed) {
+      block.classList.toggle('collapsed', collapsed);
+      var btn = block.querySelector('.block-toggle');
+      if (btn) { btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true'); }
+    }
+    function panelIndexOf(el) {
+      var p = el && el.closest ? el.closest('.step-panel') : null;
+      return p ? panels.indexOf(p) : -1;
+    }
+
+    // Each section heading becomes a real toggle button, so it is reachable by keyboard.
+    function buildToggles() {
+      blocks.forEach(function (block, i) {
+        var head = block.querySelector('.block-head');
+        if (!head) { return; }
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'block-toggle';
+        btn.setAttribute('aria-expanded', 'true');
+        btn.setAttribute('aria-controls', block.id);
+        var num = document.createElement('span');
+        num.className = 'block-num';
+        num.textContent = String(i + 1);
+        btn.appendChild(num);
+        var label = document.createElement('span');
+        label.className = 'block-label';
+        label.textContent = head.textContent;
+        btn.appendChild(label);
+        var count = document.createElement('span');
+        count.className = 'block-count';
+        btn.appendChild(count);
+        var chev = document.createElement('span');
+        chev.className = 'block-chevron';
+        chev.setAttribute('aria-hidden', 'true');
+        btn.appendChild(chev);
+        head.textContent = '';
+        head.appendChild(btn);
+        btn.addEventListener('click', function () {
+          setCollapsed(block, !block.classList.contains('collapsed'));
+        });
+      });
+    }
+
+    function buildStepper() {
+      if (!stepper || !panels.length) { return; }
+      stepBtns.forEach(function (btn, n) {
+        var meta = btn.querySelector('.step-meta');
+        // Keep the server-rendered hint: it is what an untouched step goes back to saying.
+        if (meta) { meta.setAttribute('data-hint', meta.textContent); }
+        btn.addEventListener('click', function () { showStep(n, true); });
+      });
+      stepper.hidden = false;
+    }
+
+    function showStep(i, moveFocus) {
+      if (!panels.length) { return; }
+      current = Math.max(0, Math.min(i, panels.length - 1));
+      var last = current === panels.length - 1;
+      panels.forEach(function (p, n) { p.classList.toggle('active', n === current); });
+      stepBtns.forEach(function (b, n) {
+        b.classList.toggle('current', n === current);
+        if (n === current) { b.setAttribute('aria-current', 'step'); } else { b.removeAttribute('aria-current'); }
+      });
+      if (prevBtn) { prevBtn.hidden = current === 0; }
+      if (nextBtn) {
+        nextBtn.hidden = last;
+        nextBtn.classList.toggle('primary', !last);
+      }
+      // Moving on is the primary action until the last step, where saving is.
+      if (saveBtn) { saveBtn.classList.toggle('primary', last); }
+      if (position) {
+        var named = stepBtns[current] && stepBtns[current].querySelector('.step-name');
+        position.textContent = 'Step ' + (current + 1) + ' of ' + panels.length +
+          (named ? ' · ' + named.textContent : '');
+      }
+      if (moveFocus) {
+        try {
+          (stepper || panels[current]).scrollIntoView({ block: 'start' });
+        } catch (e) { /* older browsers: the step still changed, it just did not scroll */ }
+        panels[current].focus({ preventScroll: true });
+      }
+    }
+
+    function refreshSteps() {
+      panels.forEach(function (panel, n) {
+        var mine = blocks.filter(function (b) { return b.closest('.step-panel') === panel; });
+        var filled = 0, errs = 0, started = 0;
+        mine.forEach(function (block) {
+          var f = filledCount(block);
+          var e = errorCount(block);
+          filled += f;
+          errs += e;
+          if (f > 0) { started++; }
+          var count = block.querySelector('.block-count');
+          if (count) {
+            count.textContent = e ? e + (e === 1 ? ' problem' : ' problems') : (f ? f + ' filled' : 'empty');
+            count.className = 'block-count' + (e ? ' has-error' : (f ? ' has-value' : ''));
+          }
+        });
+        var btn = stepBtns[n];
+        if (!btn) { return; }
+        btn.classList.toggle('has-error', errs > 0);
+        btn.classList.toggle('is-done', errs === 0 && mine.length > 0 && started === mine.length);
+        var meta = btn.querySelector('.step-meta');
+        if (!meta) { return; }
+        if (errs) {
+          meta.textContent = errs + (errs === 1 ? ' problem' : ' problems');
+        } else if (filled) {
+          meta.textContent = filled + (filled === 1 ? ' field filled' : ' fields filled');
+        } else {
+          meta.textContent = meta.getAttribute('data-hint') || '';
+        }
+      });
+    }
+
+    // The strip under the title: who, when, where, how many, how much — visible on every step.
+    function refreshSummary() {
+      function put(id, value) {
+        var el = document.getElementById(id);
+        if (el) { el.textContent = value ? value : '—'; }
+      }
+      put('sum-client', field('client_name') && field('client_name').value.trim());
+      var d = field('event_date') && field('event_date').value;
+      var when = '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(d || '')) {
+        var parts = d.split('-');
+        when = new Date(+parts[0], +parts[1] - 1, +parts[2])
+          .toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+      }
+      put('sum-date', when);
+      var venue = field('venue_id');
+      var chosen = venue && venue.options ? venue.options[venue.selectedIndex] : null;
+      var venueName = chosen && chosen.value ? chosen.textContent.trim() : '';
+      if (chosen && chosen.value === 'other') {
+        venueName = (field('venue_other') && field('venue_other').value.trim()) || 'Other';
+      }
+      put('sum-venue', venueName);
+      put('sum-guests', field('guests') && field('guests').value.trim());
+      var net = document.getElementById('t-grand');
+      if (net) { put('sum-net', net.textContent); }
+    }
+
+    if (panels.length) { form.classList.add('is-wizard'); }
+    buildToggles();
+    buildStepper();
+    if (prevBtn) { prevBtn.addEventListener('click', function () { showStep(current - 1, true); }); }
+    if (nextBtn) {
+      nextBtn.addEventListener('click', function () {
+        if (panelIndexOf(slotField) === current && slotMissing()) {
+          var open = slotGrid.querySelector('input[name="slot_id"]:not(:disabled)');
+          if (open) { setSlotMessage('Choose an available event slot to continue.', true); }
+          try { slotField.scrollIntoView({ block: 'center' }); } catch (e) { /* still shown, just not scrolled to */ }
+          if (open) { open.focus(); }
+          return;
+        }
+        showStep(current + 1, true);
+      });
+    }
+
+    // Optional sections start collapsed, but only when they are empty and error-free —
+    // never hide something the user typed or something the server complained about.
+    blocks.forEach(function (block) {
+      if (block.getAttribute('data-collapsible') === '1' && !filledCount(block) && !errorCount(block)) {
+        setCollapsed(block, true);
+      }
+    });
+    showStep(0, false);
+    refreshSteps();
+    refreshSummary();
+    form.addEventListener('input', function () { refreshSteps(); refreshSummary(); });
+    form.addEventListener('change', function () { refreshSteps(); refreshSummary(); });
+
+    // A section holding an error must never be hidden: open its step, open the section, go to it.
+    // Scrolling is a convenience — never let it stop the handlers registered below from binding.
+    var firstError = form.querySelector('.field-error');
+    if (firstError) {
+      var owner = firstError.closest('.block');
+      if (owner) { setCollapsed(owner, false); }
+      var errStep = panelIndexOf(firstError);
+      if (errStep >= 0) { showStep(errStep, false); }
+      try {
+        firstError.scrollIntoView({ block: 'center' });
+      } catch (e) { /* older browsers: the error is still visible, just not scrolled to */ }
+    }
 
     // ---- Unsaved-changes warning -------------------------------------------------------------
     var dirty = false;
@@ -120,8 +571,10 @@
     });
 
     // Recalculate only when the form is editable (read-only pages show the stored server totals).
+    // The summary strip mirrors #t-grand, so it is refreshed after, not before, that first pass.
     if (form.getAttribute('data-readonly') !== '1') {
       recalc();
+      refreshSummary();
     }
   });
 })();

@@ -42,12 +42,13 @@ $MYSQL -e "UPDATE users SET password_hash='$HASH', must_change_password=0 WHERE 
   ('bilal','$HASH','vendor','Bilal Ahmed','Bilal Events','Bilal Ahmed','0300-1111111','active');"
 VENDOR_ID=$($MYSQL -e "SELECT id FROM users WHERE username='uzair'")
 LAWN_A=$($MYSQL -e "SELECT id FROM venues WHERE name='Lawn A'")
+SLOT_A=$($MYSQL -e "SELECT id FROM venue_slots WHERE venue_id=$LAWN_A AND name='Morning'")
 login v uzair Passw0rd-e2e
 login o bilal Passw0rd-e2e
 login a admin Passw0rd-e2e
-csrf v /booking/form.php
-req v POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=Ayesha Siddiqui" "event_date=2027-04-04" \
-  "venue_id=$LAWN_A" "guests=100" "per_head_rate=1000"
+csrf a /booking/form.php
+req a POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=Ayesha Siddiqui" "event_date=2027-04-04" \
+  "venue_id=$LAWN_A" "slot_id=$SLOT_A" "guests=100" "per_head_rate=1000" "vendor_id=$VENDOR_ID"
 ID=${LOC##*=}
 
 echo "== Upload, download, type and size checks"
@@ -88,7 +89,7 @@ req v GET "/booking/form.php?id=$ID"; lacks "Attach a file" "vendor can't attach
 csrf v "/booking/form.php?id=$ID"
 upload v /documents/upload.php "_csrf=$TOKEN" "booking_id=$ID" "file=@$(W signed.pdf);type=application/pdf"
 expect "$CODE" "404" "vendor upload to a confirmed booking: 404"
-FORM=( "client_name=Ayesha Siddiqui" "event_date=2027-04-04" "venue_id=$LAWN_A" "guests=100" "per_head_rate=1000"
+FORM=( "client_name=Ayesha Siddiqui" "event_date=2027-04-04" "venue_id=$LAWN_A" "slot_id=$SLOT_A" "guests=100" "per_head_rate=1000"
        "vendor_id=$VENDOR_ID" "firm_name=Uzair Caterers" "rep_name=Uzair Khan" "rep_contact=0312-2159834" )
 csrf a "/booking/form.php?id=$ID"
 req a POST /booking/save.php "_csrf=$TOKEN" "id=$ID" "version=$(ver $ID)" "${FORM[@]}" "vendor_sign_name=Uzair Khan" "client_sign_name=Ayesha Siddiqui"
@@ -194,6 +195,33 @@ req v GET /admin/preflight.php; expect "$CODE" "404" "vendor: 404 on the checks 
 req v GET /admin/catalog.php; expect "$CODE" "404" "vendor: 404 on the catalog page"
 req v GET /admin/venues.php; expect "$CODE" "404" "vendor: 404 on the venues page"
 
+echo "== Event Slot Management"
+LAWN_C=$($MYSQL -e "SELECT id FROM venues WHERE name='Lawn C'")
+req v GET "/admin/slots.php"; expect "$CODE" "404" "vendors can't open slot management"
+req a GET "/admin/slots.php?venue=$LAWN_C"; expect "$CODE" "200" "slot management opens"
+contains "Event Slot Management" "page title"; contains "Add New Slot" "add button"
+contains "8:00 PM" "default Evening listed with its time"
+csrf a "/admin/slots.php?venue=$LAWN_C"
+req a POST "/admin/slots.php?venue=$LAWN_C" "_csrf=$TOKEN" "action=create" "name=Brunch" "start_time=11:00" "end_time=13:00" "sort_order=5"
+contains "overlaps “Morning”" "overlapping slot refused with the reason"
+contains 'value="Brunch"' "the typed slot is kept on the form"
+req a POST "/admin/slots.php?venue=$LAWN_C" "_csrf=$TOKEN" "action=create" "name=Late" "start_time=15:00" "end_time=12:00" "sort_order=5"
+contains "is before the start time" "end before start refused"
+req a POST "/admin/slots.php?venue=$LAWN_C" "_csrf=$TOKEN" "action=create" "name=Tea" "start_time=15:00" "end_time=16:00" "sort_order=25"
+expect "$CODE" "303" "a new slot in the gap is added"
+req v GET "/booking/slots.php?venue_id=$LAWN_C&date=2027-08-08"
+contains '"name":"Tea","icon":null,"start":"15:00","end":"16:00"' "the new slot reaches the booking form without code changes"
+TEA=$($MYSQL -e "SELECT id FROM venue_slots WHERE venue_id=$LAWN_C AND name='Tea'")
+csrf a "/admin/slots.php?venue=$LAWN_C"
+req a POST "/admin/slots.php?venue=$LAWN_C" "_csrf=$TOKEN" "action=disable" "slot_id=$TEA"
+req v GET "/booking/slots.php?venue_id=$LAWN_C&date=2027-08-08"; lacks '"name":"Tea"' "a disabled slot is not offered"
+csrf a "/admin/slots.php?venue=$LAWN_C"
+req a POST "/admin/slots.php?venue=$LAWN_C" "_csrf=$TOKEN" "action=delete" "slot_id=$TEA"
+expect "$($MYSQL -e "SELECT COUNT(*) FROM venue_slots WHERE id=$TEA")" "0" "an unused slot is deleted"
+csrf a "/admin/slots.php?venue=$LAWN_A"
+req a POST "/admin/slots.php?venue=$LAWN_A" "_csrf=$TOKEN" "action=delete" "slot_id=$SLOT_A"
+req a GET "/admin/slots.php?venue=$LAWN_A"; contains "used by at least one booking, so it can" "a used slot can't be deleted"
+
 echo "== Audit"
 $MYSQL -e "SELECT action, COUNT(*) FROM audit_log WHERE action IN ('attachment_add','attachment_void','catalog_change','venue_change') GROUP BY action"
 
@@ -201,7 +229,8 @@ $MYSQL -e "SELECT action, COUNT(*) FROM audit_log WHERE action IN ('attachment_a
 # files it has served open, so those can only be removed once the server is stopped.
 PROJECT=$(cd "$(dirname "$0")/.." && pwd)
 LEFT=0
-for stored in $($MYSQL -e "SELECT stored_name FROM attachments" | tr -d ''); do
+for stored in $($MYSQL -e "SELECT stored_name FROM attachments" | tr -d '
+'); do
   rm -f "$PROJECT/storage/uploads/$stored" 2>/dev/null
   [ -f "$PROJECT/storage/uploads/$stored" ] && LEFT=$((LEFT+1))
 done

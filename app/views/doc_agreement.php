@@ -6,7 +6,6 @@ $rev = (int) $booking['revision'];
 $number = format_document_number($booking['unique_id'], 'SLA', $rev);
 $watermark = document_watermark($booking);
 $guests = (int) $booking['guests'];
-$staff = (int) $booking['waiters'] + (int) $booking['chefs'];
 ?>
 <div class="doc-toolbar">
   <button type="button" class="btn primary" id="print-btn">Print / Save as PDF</button>
@@ -66,10 +65,9 @@ $staff = (int) $booking['waiters'] + (int) $booking['chefs'];
     <table class="doc-table kv">
       <tr><th>Type of event</th><td><?= h(dchoice($booking, 'event_type', 'event_type_other')) ?></td>
           <th>Date</th><td><?= h(ddate($booking['event_date'])) ?><?= $d['event_day'] ? ' (' . h($d['event_day']) . ')' : '' ?></td></tr>
-      <tr><th>Venue</th><td><?= h(dv($d['venue'])) ?></td>
+      <tr><th>Venue</th><td><?= h(dvenue($d)) ?></td>
           <th>Alternate date</th><td><?= h(ddate($booking['alt_date'])) ?></td></tr>
-      <tr><th>Setup ready by</th><td><?= h(dtime($booking['setup_time'])) ?></td>
-          <th>Event starts</th><td><?= h(dtime($booking['start_time'])) ?></td></tr>
+      <tr><th>Event time</th><td colspan="3"><?= h(dslot($booking)) ?></td></tr>
       <tr><th>Estimated guests</th><td><?= $guests ?></td>
           <th>Referred by</th><td><?= h(dv(trim($booking['reference_name'] . ' ' . ($booking['reference_department'] ? '(' . $booking['reference_department'] . ')' : '')))) ?></td></tr>
     </table>
@@ -121,17 +119,7 @@ $staff = (int) $booking['waiters'] + (int) $booking['chefs'];
   </section>
 
   <section class="doc-block">
-    <h3>4. Furniture &amp; manpower</h3>
-    <table class="doc-table kv">
-      <tr><th>Sofas</th><td><?= (int) $booking['sofas'] ?></td><th>Chairs</th><td><?= (int) $booking['chairs'] ?></td></tr>
-      <tr><th>Dining tables</th><td><?= (int) $booking['tables_dining'] ?></td><th>Buffet tables</th><td><?= (int) $booking['tables_buffet'] ?></td></tr>
-      <tr><th>Waiters</th><td><?= (int) $booking['waiters'] ?></td><th>Chefs</th><td><?= (int) $booking['chefs'] ?></td></tr>
-      <tr><th>Total staff on site</th><td colspan="3"><?= $staff ?></td></tr>
-    </table>
-  </section>
-
-  <section class="doc-block">
-    <h3>5. Charges</h3>
+    <h3>4. Charges</h3>
     <table class="doc-table money">
       <thead><tr><th>Description</th><th class="num">Rate</th><th class="num">Qty</th><th class="num">Amount</th></tr></thead>
       <tbody>
@@ -157,7 +145,7 @@ $staff = (int) $booking['waiters'] + (int) $booking['chefs'];
   </section>
 
   <section class="doc-block">
-    <h3>6. Cancellation &amp; refund policy</h3>
+    <h3>5. Cancellation &amp; refund policy</h3>
     <ul class="doc-list">
       <li>Cancelled more than 30 days before the event: <strong><?= $booking['refund_pct_30'] !== null ? h(rtrim(rtrim($booking['refund_pct_30'], '0'), '.')) . '%' : '____' ?></strong> of the amount paid is refunded.</li>
       <li>Cancelled 7–30 days before the event: <strong><?= $booking['refund_pct_7'] !== null ? h(rtrim(rtrim($booking['refund_pct_7'], '0'), '.')) . '%' : '____' ?></strong> of the amount paid is refunded.</li>
@@ -170,7 +158,7 @@ $staff = (int) $booking['waiters'] + (int) $booking['chefs'];
 
 <?php if ($booking['special_commitments']): ?>
   <section class="doc-block">
-    <h3>7. Special commitments by the Vendor</h3>
+    <h3>6. Special commitments by the Vendor</h3>
     <p><?= nl2br(h($booking['special_commitments'])) ?></p>
   </section>
 <?php endif; ?>

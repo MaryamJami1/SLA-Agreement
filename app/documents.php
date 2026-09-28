@@ -11,7 +11,7 @@ declare(strict_types=1);
 /**
  * Everything the three documents need for one booking.
  *
- * @return array{venue: string, lines: array, charges: array, payments: array, paid: int, refunded: int,
+ * @return array{venue: string, venue_location: ?string, lines: array, charges: array, payments: array, paid: int, refunded: int,
  *               amendment: ?array, event_day: ?string}
  */
 function document_data(PDO $pdo, array $booking): array
@@ -36,8 +36,18 @@ function document_data(PDO $pdo, array $booking): array
     [$paid, $refunded] = payment_sums(array_map(
         static fn($p) => ['kind' => $p['kind'], 'amount' => decimal_to_paisa($p['amount']), 'voided' => false], $payments));
 
+    // The booking's own copy of the location; the venue row is only a fallback for bookings
+    // saved before venue locations existed.
+    $venueLocation = trim((string) ($booking['venue_location'] ?? ''));
+    if ($venueLocation === '' && $booking['venue_id'] !== null) {
+        $st = $pdo->prepare('SELECT location FROM venues WHERE id = ?');
+        $st->execute([(int) $booking['venue_id']]);
+        $venueLocation = trim((string) ($st->fetchColumn() ?: ''));
+    }
+
     return [
         'venue'     => $venue ?: null,
+        'venue_location' => $venueLocation !== '' ? $venueLocation : null,
         'lines'     => $lines,
         'charges'   => $lines['charge'] ?? [],
         'payments'  => $payments,
@@ -79,6 +89,29 @@ function ddate($date, string $empty = '—'): string
 function dtime($time, string $empty = '—'): string
 {
     return $time ? date('g:i a', strtotime('2000-01-01 ' . $time)) : $empty;
+}
+
+/**
+ * When the event runs: the booked slot with its times ("Evening, 8:00 pm – 12:00 am") — as they were
+ * when the slot was booked, not as the slot reads today — or, for bookings without a slot, the start time.
+ */
+function dslot(array $booking, string $empty = '—'): string
+{
+    if (($booking['slot_name'] ?? null) !== null) {
+        return $booking['slot_name'] . ', ' . dtime($booking['slot_start']) . ' – ' . dtime($booking['slot_end']);
+    }
+    return dtime($booking['start_time'], $empty);
+}
+
+/** The venue with its location appended, e.g. "Lawn A — Ground floor, Block B". */
+function dvenue(array $d, string $empty = '—'): string
+{
+    $venue = dv($d['venue'], '');
+    $location = dv($d['venue_location'] ?? null, '');
+    if ($venue === '') {
+        return $location === '' ? $empty : $location;
+    }
+    return $location === '' ? $venue : "$venue — $location";
 }
 
 /** A select value plus its "If Other, specify" text. */

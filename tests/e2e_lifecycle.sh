@@ -24,9 +24,12 @@ lacks() { if grep -q -- "$1" "$T/body"; then bad "$2" "body has [$1]"; else ok "
 login() { csrf "$1" /auth/login.php; req "$1" POST /auth/login.php "_csrf=$TOKEN" "username=$2" "password=$3"; }
 ver() { $MYSQL -e "SELECT version FROM bookings WHERE id=$1"; }
 status() { $MYSQL -e "SELECT status FROM bookings WHERE id=$1"; }
-# new_draft JAR CLIENT DATE VENUE -> ID (a confirmable draft: Rs. 1,00,000)
-new_draft() { csrf "$1" /booking/form.php
-  req "$1" POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=$2" "event_date=$3" "venue_id=$4" \
+slot() { $MYSQL -e "SELECT id FROM venue_slots WHERE venue_id=$1 AND name='$2'"; }
+# new_draft JAR CLIENT DATE VENUE [SLOT] -> ID (a confirmable draft: Rs. 1,00,000; slot defaults to Morning)
+# Only AO Mess sets money, so the priced draft is saved by the admin with the vendor as its
+# owner. The JAR argument is kept for readability; ownership is what the tests below turn on.
+new_draft() { csrf a /booking/form.php
+  req a POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=$2" "event_date=$3" "venue_id=$4" "slot_id=$(slot $4 "${5:-Morning}")" \
     "guests=100" "per_head_rate=1000" "client_cnic=42101-1234567-1" "vendor_id=$VENDOR_ID"
   ID=${LOC##*=}; }
 
@@ -44,7 +47,13 @@ login a admin Passw0rd-e2e
 
 echo "== Confirm"
 new_draft v "Ayesha Siddiqui" 2027-01-10 $LAWN_A; A=$ID
-new_draft v "Bushra Ali" 2027-01-10 $LAWN_A; BB=$ID
+new_draft v "Bushra Ali" 2027-01-10 $LAWN_A Morning
+expect "$CODE" "422" "the same venue, date and slot can't be booked twice"
+contains "Morning is already booked at this venue on 10 Jan 2027" "the slot error names the slot"
+new_draft v "Bushra Ali" 2027-01-10 $LAWN_B Morning; BB=$ID
+# A booking from before slots existed held the whole day: make one on Lawn B for that date.
+new_draft v "Legacy Client" 2027-01-10 $LAWN_B Evening; LEG=$ID
+$MYSQL -e "UPDATE bookings SET status='confirmed', slot_id=NULL, slot_name=NULL, slot_start=NULL, slot_end=NULL WHERE id=$LEG"
 req v GET "/booking/form.php?id=$A"; lacks "Confirm booking" "vendor has no Confirm button"
 contains "Delete draft" "owner vendor can delete their draft"
 csrf v "/booking/form.php?id=$A"
@@ -62,7 +71,7 @@ echo "== Vendor view of a confirmed booking"
 req v GET "/booking/form.php?id=$A"; contains "is confirmed and can no longer be edited" "vendor: read-only"
 lacks "Save Changes" "vendor: no save"; lacks "Delete draft" "vendor: no delete"
 
-echo "== Venue conflict on confirm, and the override"
+echo "== Venue conflict on confirm (a whole-day booking), and the override"
 csrf a "/booking/form.php?id=$BB"; contains "Override reason" "B's page asks for an override reason"
 req a POST /booking/confirm.php "_csrf=$TOKEN" "id=$BB" "version=$(ver $BB)"
 req a GET "/booking/form.php?id=$BB"; contains "The venue is already confirmed for SLA-" "B refused without an override"
@@ -73,7 +82,7 @@ expect "$(status $BB)" "confirmed" "B confirmed with an override"
 expect "$($MYSQL -e "SELECT COUNT(*) FROM audit_log WHERE action='confirm' AND booking_id=$BB AND details LIKE '%Different halves%'")" "1" "override reason in the audit log"
 
 echo "== Direct edit vs amendment through the form"
-FORM=( "client_name=Ayesha Siddiqui" "client_cnic=42101-1234567-1" "event_date=2027-01-10" "venue_id=$LAWN_A" "guests=100"
+FORM=( "client_name=Ayesha Siddiqui" "client_cnic=42101-1234567-1" "event_date=2027-01-10" "venue_id=$LAWN_A" "slot_id=$(slot $LAWN_A Morning)" "guests=100"
        "per_head_rate=1000" "vendor_id=$VENDOR_ID" "firm_name=Uzair Caterers" "rep_name=Uzair Khan" "rep_contact=0312-2159834" )
 csrf a "/booking/form.php?id=$A"; contains "Changing a confirmed agreement" "admin sees the amendment panel"
 req a POST /booking/save.php "_csrf=$TOKEN" "id=$A" "version=$(ver $A)" "${FORM[@]}" "client_contact=0333-7654321" "client_sign_name=Ayesha Siddiqui" "vendor_sign_name=Uzair Khan"

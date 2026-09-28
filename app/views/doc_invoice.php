@@ -47,7 +47,7 @@ $netPaid = $d['paid'] - $d['refunded'];
       <h4>Event Reference</h4>
       <p>Type: <?= h(dchoice($booking, 'event_type', 'event_type_other')) ?></p>
       <p>Date: <?= h(ddate($booking['event_date'])) ?><?= $d['event_day'] ? ' (' . h($d['event_day']) . ')' : '' ?></p>
-      <p>Venue: <?= h(dv($d['venue'])) ?></p>
+      <p>Venue: <?= h(dvenue($d)) ?></p>
       <p>Guests: <?= $guests ?></p>
       <p>Vendor: <?= h(dv($booking['firm_name'])) ?></p>
     </div>

@@ -31,6 +31,7 @@ $MYSQL -e "UPDATE users SET password_hash='$HASH', must_change_password=0 WHERE 
   ('bilal','$HASH','vendor','Bilal Ahmed','Bilal Events','Bilal Ahmed','0300-1111111','active');"
 VENDOR_ID=$($MYSQL -e "SELECT id FROM users WHERE username='uzair'")
 LAWN_A=$($MYSQL -e "SELECT id FROM venues WHERE name='Lawn A'")
+SLOT_A=$($MYSQL -e "SELECT id FROM venue_slots WHERE venue_id=$LAWN_A AND name='Evening'")
 VENUE_CHARGE=$($MYSQL -e "SELECT id FROM item_catalog WHERE name='Venue Charges'")
 TRACING=$($MYSQL -e "SELECT id FROM item_catalog WHERE section='charge' AND unit='per unit' LIMIT 1")
 LED=$($MYSQL -e "SELECT id FROM item_catalog WHERE name='LED'")
@@ -41,11 +42,11 @@ login a admin Passw0rd-e2e
 
 FORM=( "client_name=Ayesha Siddiqui" "client_relation=D/o Muhammad Siddiqui" "client_cnic=42101-1234567-1"
        "client_contact=0333-1234567" "client_address=12-C, Khayaban-e-Shahbaz, DHA Phase 6, Karachi"
-       "event_type=Valima" "event_date=2027-02-14" "venue_id=$LAWN_A" "guests=200" "per_head_rate=1500"
+       "event_type=Valima" "event_date=2027-02-14" "venue_id=$LAWN_A" "slot_id=$SLOT_A" "guests=200" "per_head_rate=1500"
        "setup_time=16:00" "start_time=19:30" "menu_type=Buffet" "food_items=Mutton Karahi
 Chicken Biryani" "theme=Ivory and gold" "stage=Fabric" "agreement_day=14th" "agreement_month=September, 2026"
        "discount=5000" "refund_pct_30=50" "refund_pct_7=25" "special_commitments=Dedicated event coordinator on site"
-       "waiters=12" "chefs=4" "sofas=2" "chairs=200" "vendor_id=$VENDOR_ID"
+       "vendor_id=$VENDOR_ID"
        "firm_name=Uzair Caterers" "rep_name=Uzair Khan" "rep_contact=0312-2159834"
        "lines[c$VENUE_CHARGE][present]=1" "lines[c$VENUE_CHARGE][selected]=1" "lines[c$VENUE_CHARGE][rate]=50000"
        "lines[c$TRACING][present]=1" "lines[c$TRACING][selected]=1" "lines[c$TRACING][rate]=300" "lines[c$TRACING][qty]=10"
@@ -80,7 +81,7 @@ contains "Uzair Caterers" "vendor firm"
 contains "14 Feb 2027" "event date"
 contains "(Sunday)" "day of the week calculated"
 contains "Lawn A" "venue"
-contains "7:30 pm" "start time"
+contains "Evening, 8:00 pm – 12:00 am" "event time is the booked slot"
 contains "Rs. 3,00,000" "guest charges 1,500 x 200"
 contains "Rs. 50,000" "venue charge line"
 contains "Rs. 3,000" "per-unit tracing line 10 x 300"
@@ -124,7 +125,6 @@ contains "Operations Sheet" "ops sheet opens"
 contains "No. of PAX" "PAX row (from the reference sheet)"
 contains "Sofa" "ops item listed"
 contains "Internal working copy" "internal note"
-contains "Waiters" "manpower"
 contains "Mutton Karahi" "catering items"
 lacks "42101-1234567-1" "CNIC not printed on the internal ops sheet"
 
@@ -150,8 +150,8 @@ contains "Amount retained" "amount retained instead of a balance"
 contains "Nothing further is payable" "no balance due on a cancelled booking"
 
 echo "== Access"
-req v GET "/documents/agreement.php?id=$ID"; expect "$CODE" "200" "owner vendor can print the agreement"
-req v GET "/documents/vendor_sheet.php?id=$ID"; expect "$CODE" "200" "owner vendor can print the ops sheet"
+req v GET "/documents/agreement.php?id=$ID"; expect "$CODE" "404" "documents are admin-only: owner vendor gets 404 on the agreement"
+req v GET "/documents/vendor_sheet.php?id=$ID"; expect "$CODE" "404" "documents are admin-only: owner vendor gets 404 on the ops sheet"
 req o GET "/documents/agreement.php?id=$ID"; expect "$CODE" "404" "another vendor: 404 on the agreement"
 req o GET "/documents/invoice.php?id=$ID"; expect "$CODE" "404" "another vendor: 404 on the invoice"
 req o GET "/documents/vendor_sheet.php?id=$ID"; expect "$CODE" "404" "another vendor: 404 on the ops sheet"

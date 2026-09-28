@@ -484,6 +484,32 @@ check('relative request URI forced to root',
     https_redirect_target(['HTTP_HOST' => 'aomess.pk', 'REQUEST_URI' => 'https://evil.example/x'], ''), 'https://aomess.pk/');
 
 // ---------------------------------------------------------------------------
+// Event slots: time arithmetic (app/slots.php)
+// ---------------------------------------------------------------------------
+check('slot labels, 12-hour', [slot_time_label('12:00:00'), slot_time_label('15:00:00'), slot_time_label('00:00:00'), slot_time_label('09:05')],
+    ['12:00 PM', '3:00 PM', '12:00 AM', '9:05 AM']);
+check('slot range label', slot_range_label('20:00:00', '00:00:00'), '8:00 PM – 12:00 AM');
+check('a slot ending at midnight runs to 1440', slot_interval('20:00', '00:00'), [1200, 1440]);
+check('a slot past midnight runs into the next day', slot_interval('22:00', '02:00'), [1320, 1560]);
+check('crosses midnight', [slot_crosses_midnight('20:00', '00:00'), slot_crosses_midnight('12:00', '15:00')], [true, false]);
+check('duration labels', [slot_duration_label('12:00', '15:00'), slot_duration_label('20:00', '00:00'), slot_duration_label('10:00', '12:30')],
+    ['3 h', '4 h', '2 h 30 min']);
+check('default slots with 1-hour gaps don\'t overlap', [
+    slots_overlap('12:00', '15:00', '16:00', '19:00'), slots_overlap('16:00', '19:00', '20:00', '00:00'), slots_overlap('20:00', '00:00', '12:00', '15:00'),
+], [false, false, false]);
+check('touching slots don\'t overlap', slots_overlap('12:00', '15:00', '15:00', '16:00'), false);
+check('overlapping slots', [slots_overlap('12:00', '15:00', '14:00', '17:00'), slots_overlap('11:00', '14:00', '12:00', '13:00')], [true, true]);
+check('a slot past midnight overlaps an early slot (next day)', slots_overlap('22:00', '02:00', '01:00', '03:00'), true);
+check('an evening to midnight does not overlap an early slot', slots_overlap('20:00', '00:00', '00:00', '02:00'), false);
+check('two slots past midnight overlap', slots_overlap('23:00', '01:00', '23:30', '00:30'), true);
+check('booking slot label uses the snapshot', booking_slot_label(['slot_name' => 'Evening', 'slot_start' => '20:00:00', 'slot_end' => '00:00:00']),
+    'Evening (8:00 PM – 12:00 AM)');
+check('no slot, no label', booking_slot_label(['slot_name' => null]), '');
+check('document slot text', dslot(['slot_name' => 'Morning', 'slot_start' => '12:00:00', 'slot_end' => '15:00:00', 'start_time' => '12:00:00']),
+    'Morning, 12:00 pm – 3:00 pm');
+check('document falls back to the start time', dslot(['slot_name' => null, 'start_time' => '19:30:00']), '7:30 pm');
+
+// ---------------------------------------------------------------------------
 echo "\n", $passed, ' passed, ', count($failed), " failed\n";
 foreach ($failed as $f) {
     echo "\nFAIL: $f\n";

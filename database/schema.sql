@@ -58,10 +58,34 @@ CREATE TABLE counters (
 CREATE TABLE venues (
   id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
   name       VARCHAR(100) NOT NULL,
+  location   VARCHAR(150) NULL,                 -- where it sits inside AO Mess; copied onto each booking
   is_active  TINYINT(1)   NOT NULL DEFAULT 1,
   sort_order INT          NOT NULL DEFAULT 0,
   PRIMARY KEY (id),
   UNIQUE KEY uq_venues_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- venue_slots: the event slots each venue offers (admin-managed, Event Slots page).
+-- An end_time at or before start_time means the slot ends the next day (20:00 → 00:00).
+-- Bookings copy name / start / end when a slot is chosen, so editing a slot never changes history;
+-- a slot any booking has used can only be disabled, never deleted (fk_bookings_slot).
+-- ---------------------------------------------------------------------------
+CREATE TABLE venue_slots (
+  id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  venue_id   INT UNSIGNED NOT NULL,
+  name       VARCHAR(60)  NOT NULL,
+  icon       VARCHAR(16)  NULL,                 -- optional emoji shown on the slot card
+  start_time TIME         NOT NULL,
+  end_time   TIME         NOT NULL,             -- at or before start_time = ends the next day
+  is_active  TINYINT(1)   NOT NULL DEFAULT 1,
+  sort_order INT          NOT NULL DEFAULT 0,
+  created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME     NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_venue_slots_name (venue_id, name),
+  KEY idx_venue_slots_venue (venue_id, is_active, sort_order),
+  CONSTRAINT fk_venue_slots_venue FOREIGN KEY (venue_id) REFERENCES venues (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -132,8 +156,16 @@ CREATE TABLE bookings (
   alt_date            DATE NULL,
   venue_id            INT UNSIGNED NULL,
   venue_other         VARCHAR(150) NULL,
+  venue_location      VARCHAR(150) NULL,        -- snapshot of venues.location at save time
   setup_time          TIME NULL,
-  start_time          TIME NULL,
+  start_time          TIME NULL,                -- the slot's start when a slot is chosen
+  slot_id             INT UNSIGNED NULL,        -- venue_slots.id; NULL for "Other" venues and older bookings
+  slot_name           VARCHAR(60)  NULL,        -- snapshot of the slot when it was chosen
+  slot_start          TIME NULL,
+  slot_end            TIME NULL,
+  -- The slot this booking holds: slot_id while live, NULL once cancelled. uq_bookings_slot_hold
+  -- makes the database itself refuse a second live booking of the same slot on the same date.
+  slot_hold           INT UNSIGNED GENERATED ALWAYS AS (IF(status <> 'cancelled', slot_id, NULL)) STORED,
   guests              INT UNSIGNED NOT NULL DEFAULT 0,
 
   -- Catering
@@ -199,11 +231,13 @@ CREATE TABLE bookings (
   KEY idx_bookings_status (status),
   KEY idx_bookings_client_name (client_name),
   KEY idx_bookings_venue_date (venue_id, event_date),
+  UNIQUE KEY uq_bookings_slot_hold (slot_hold, event_date),
   CONSTRAINT fk_bookings_vendor       FOREIGN KEY (vendor_id)    REFERENCES users (id)  ON DELETE RESTRICT,
   CONSTRAINT fk_bookings_created_by   FOREIGN KEY (created_by)   REFERENCES users (id)  ON DELETE RESTRICT,
   CONSTRAINT fk_bookings_updated_by   FOREIGN KEY (updated_by)   REFERENCES users (id)  ON DELETE RESTRICT,
   CONSTRAINT fk_bookings_cancelled_by FOREIGN KEY (cancelled_by) REFERENCES users (id)  ON DELETE RESTRICT,
-  CONSTRAINT fk_bookings_venue        FOREIGN KEY (venue_id)     REFERENCES venues (id) ON DELETE RESTRICT
+  CONSTRAINT fk_bookings_venue        FOREIGN KEY (venue_id)     REFERENCES venues (id) ON DELETE RESTRICT,
+  CONSTRAINT fk_bookings_slot         FOREIGN KEY (slot_id)      REFERENCES venue_slots (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
@@ -310,6 +344,8 @@ CREATE TABLE schema_version (
   PRIMARY KEY (version)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT INTO schema_version (version) VALUES (1);
+-- This file carries version 1 plus every migration in database/migrations/ folded in,
+-- so a fresh install lands on the same structure an upgraded database reaches.
+INSERT INTO schema_version (version) VALUES (1), (2), (3);
 
 SET FOREIGN_KEY_CHECKS = 1;

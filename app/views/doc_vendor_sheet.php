@@ -32,13 +32,12 @@ $decorSections = array_intersect_key($d['lines'], array_flip(['decor_general', '
 
   <table class="doc-table kv">
     <tr><th>Vendor</th><td><?= h(dv($booking['firm_name'])) ?></td>
-        <th>Venue</th><td><?= h(dv($d['venue'])) ?></td></tr>
+        <th>Venue</th><td><?= h(dvenue($d)) ?></td></tr>
     <tr><th>Contact person</th><td><?= h(dv($booking['rep_name'])) ?> <?= h(dv($booking['rep_contact'], '')) ?></td>
         <th>Event</th><td><?= h(dchoice($booking, 'event_type', 'event_type_other')) ?></td></tr>
     <tr><th>Event date</th><td><?= h(ddate($booking['event_date'])) ?><?= $d['event_day'] ? ' (' . h($d['event_day']) . ')' : '' ?></td>
         <th>No. of PAX</th><td><?= $guests ?></td></tr>
-    <tr><th>Setup ready by</th><td><?= h(dtime($booking['setup_time'])) ?></td>
-        <th>Event starts</th><td><?= h(dtime($booking['start_time'])) ?></td></tr>
+    <tr><th>Event time</th><td colspan="3"><?= h(dslot($booking)) ?></td></tr>
     <tr><th>Client</th><td><?= h(dv($booking['client_name'])) ?></td>
         <th>Client contact</th><td><?= h(dv($booking['client_contact'])) ?></td></tr>
   </table>
@@ -74,14 +73,6 @@ $decorSections = array_intersect_key($d['lines'], array_flip(['decor_general', '
 <?php endforeach; ?>
   </div>
 <?php endif; ?>
-
-  <h4 class="doc-sub">Furniture &amp; manpower</h4>
-  <table class="doc-table kv">
-    <tr><th>Sofas</th><td><?= (int) $booking['sofas'] ?></td><th>Chairs</th><td><?= (int) $booking['chairs'] ?></td>
-        <th>Dining tables</th><td><?= (int) $booking['tables_dining'] ?></td></tr>
-    <tr><th>Buffet tables</th><td><?= (int) $booking['tables_buffet'] ?></td><th>Waiters</th><td><?= (int) $booking['waiters'] ?></td>
-        <th>Chefs</th><td><?= (int) $booking['chefs'] ?></td></tr>
-  </table>
 
 <?php if ($booking['food_items'] || $booking['menu_type']): ?>
   <h4 class="doc-sub">Catering</h4>

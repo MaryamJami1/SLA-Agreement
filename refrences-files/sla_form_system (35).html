@@ -1,0 +1,2273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Booking Organizer — Catering &amp; Decoration SLA Register</title>
+<style>
+  :root{
+    --paper:#F2EFE6;
+    --card:#FCFBF7;
+    --ink:#20261F;
+    --navy:#1F3A34;
+    --navy-deep:#152925;
+    --brass:#8A6D3B;
+    --brass-light:#C9A96A;
+    --line:#C9C2AC;
+    --danger:#8C3B2E;
+    --ok:#3A5A40;
+    font-size:16px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:"Iowan Old Style","Palatino Linotype",Georgia,serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .label-font{
+    font-family:"Courier New",ui-monospace,monospace;
+    letter-spacing:.02em;
+  }
+  .letterhead{
+    background:#FFFFFF;
+    text-align:center;
+    padding:16px 32px;
+    border-bottom:4px solid #1A1A1A;
+  }
+  .letterhead-meta{
+    font-family:"Courier New",monospace;
+    color:#5C6459;
+  }
+  .letterhead-line1{
+    font-size:.95rem;
+    color:#1A1A1A;
+    font-weight:700;
+    letter-spacing:.02em;
+  }
+  .letterhead-line2{
+    font-size:.75rem;
+    margin-top:2px;
+  }
+  header.masthead{
+    background:var(--navy-deep);
+    color:var(--brass-light);
+    padding:22px 28px 18px;
+    border-bottom:4px double var(--brass);
+  }
+  header.masthead .crest-row{
+    display:flex;
+    align-items:baseline;
+    justify-content:center;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+  header.masthead h1{
+    margin:0;
+    font-size:1.5rem;
+    font-weight:600;
+    letter-spacing:.03em;
+    color:#F4EFE1;
+  }
+  header.masthead .sub{
+    margin-top:4px;
+    font-size:.82rem;
+    color:#B9C4B4;
+    text-align:center;
+  }
+
+  nav.tabs{
+    display:flex;
+    background:var(--navy);
+    border-bottom:1px solid var(--navy-deep);
+  }
+  nav.tabs button{
+    font-family:inherit;
+    font-size:.85rem;
+    letter-spacing:.03em;
+    background:transparent;
+    border:none;
+    color:#CFE0CC;
+    padding:11px 20px;
+    cursor:pointer;
+    border-right:1px solid rgba(255,255,255,.08);
+  }
+  nav.tabs button.active{
+    background:var(--paper);
+    color:var(--navy-deep);
+    font-weight:700;
+  }
+  nav.tabs .spacer{flex:1;}
+  nav.tabs .dbcount{
+    align-self:center;
+    color:#8FAE8A;
+    font-family:"Courier New",monospace;
+    font-size:.72rem;
+    padding-right:16px;
+    border-right:1px solid rgba(255,255,255,.15);
+    margin-right:2px;
+  }
+  nav.tabs .idbox{
+    align-self:center;
+    color:var(--brass-light);
+    font-family:"Courier New",monospace;
+    font-size:.8rem;
+    padding-right:18px;
+    transition:color .25s ease;
+  }
+  nav.tabs .idbox.id-flash{
+    animation:idPulseNav .7s ease-out;
+  }
+  @keyframes idPulseNav{
+    0%{ color:#F4EFE1; text-shadow:0 0 10px var(--brass-light); }
+    100%{ color:var(--brass-light); text-shadow:none; }
+  }
+
+  main{
+    max-width:980px;
+    margin:0 auto;
+    padding:26px 22px 70px;
+  }
+
+  .card{
+    background:var(--card);
+    border:1px solid var(--line);
+    box-shadow:0 1px 0 rgba(0,0,0,.04);
+  }
+
+  /* ---- FORM VIEW ---- */
+  .form-sheet{padding:0;}
+  .sheet-head{
+    padding:18px 26px 14px;
+    border-bottom:2px solid var(--navy);
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    flex-wrap:wrap;
+    gap:10px;
+  }
+  .sheet-head h2{
+    margin:0;
+    font-size:1.15rem;
+    color:var(--navy-deep);
+  }
+  .sheet-head .rec-id{
+    font-family:"Courier New",monospace;
+    font-size:.85rem;
+    color:var(--brass);
+    background:#EFE6D2;
+    padding:4px 10px;
+    border:1px solid var(--brass-light);
+    transition:transform .2s ease, background .3s ease, border-color .3s ease;
+  }
+  .sheet-head .rec-id.id-flash{
+    animation:idPulseSheet .7s ease-out;
+  }
+  @keyframes idPulseSheet{
+    0%{ background:var(--brass); color:#fff; border-color:var(--navy-deep); transform:scale(1.08); }
+    100%{ background:#EFE6D2; color:var(--brass); border-color:var(--brass-light); transform:scale(1); }
+  }
+  .readonly-banner{
+    background:#F5E9DC;
+    color:#7A4A1F;
+    border-bottom:1px solid var(--brass-light);
+    padding:9px 26px;
+    font-size:.8rem;
+    font-family:"Courier New",monospace;
+  }
+  .creator-info{
+    padding:8px 26px;
+    font-size:.76rem;
+    font-family:"Courier New",monospace;
+    color:#5C6459;
+    background:#F7F5EE;
+    border-bottom:1px solid var(--line);
+  }
+  .creator-info strong{color:var(--navy-deep);}
+  section.block{
+    padding:16px 26px;
+    border-bottom:1px solid var(--line);
+  }
+  section.block:last-of-type{border-bottom:none;}
+  section.block h3{
+    margin:0 0 12px;
+    font-size:.72rem;
+    text-transform:none;
+    letter-spacing:.04em;
+    color:var(--navy);
+    font-family:"Courier New",monospace;
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  section.block h3::after{
+    content:"";
+    flex:1;
+    border-bottom:1px dashed var(--line);
+  }
+  .grid{
+    display:grid;
+    grid-template-columns:repeat(2,1fr);
+    gap:12px 20px;
+  }
+  .grid.g3{grid-template-columns:repeat(3,1fr);}
+  .field{display:flex;flex-direction:column;gap:4px;}
+  .field.span2{grid-column:span 2;}
+  .field.span3{grid-column:span 3;}
+  .field label{
+    font-size:.72rem;
+    color:#5C6459;
+    font-family:"Courier New",monospace;
+    letter-spacing:.01em;
+  }
+  input[type=text],input[type=number],input[type=date],input[type=time],select,textarea{
+    font-family:inherit;
+    font-size:.92rem;
+    padding:7px 8px;
+    border:none;
+    border-bottom:1.5px solid var(--line);
+    background:transparent;
+    color:var(--ink);
+  }
+  input:focus,select:focus,textarea:focus{
+    outline:none;
+    border-bottom-color:var(--navy);
+    background:#FBF9F2;
+  }
+  textarea{resize:vertical;min-height:44px;font-family:inherit;}
+  .radio-row{display:flex;flex-wrap:wrap;gap:14px;padding-top:4px;}
+  .radio-row label{
+    display:flex;align-items:center;gap:5px;
+    font-size:.85rem;color:var(--ink);
+    font-family:inherit;
+  }
+  .furniture-table{width:100%;border-collapse:collapse;}
+  .furniture-table td{padding:6px 4px;font-size:.88rem;}
+  .furniture-table td.qty input{width:90px;}
+  .furniture-table tr{border-bottom:1px dotted var(--line);}
+
+  .actionbar{
+    position:sticky;bottom:0;
+    background:var(--navy-deep);
+    padding:12px 26px;
+    display:flex;
+    gap:10px;
+    align-items:center;
+    flex-wrap:wrap;
+  }
+  .btn{
+    font-family:"Courier New",monospace;
+    font-size:.8rem;
+    letter-spacing:.02em;
+    padding:9px 16px;
+    border:1px solid var(--brass);
+    background:transparent;
+    color:var(--brass-light);
+    cursor:pointer;
+  }
+  .btn:hover{background:rgba(201,169,106,.12);}
+  .btn.primary{
+    background:var(--brass);
+    color:var(--navy-deep);
+    font-weight:700;
+    border-color:var(--brass);
+  }
+  .btn.primary:hover{background:var(--brass-light);}
+  .btn.danger{border-color:var(--danger);color:#E7A79A;}
+  .btn.danger:hover{background:rgba(140,59,46,.15);}
+  .actionbar .status{
+    margin-left:auto;
+    color:#B9C4B4;
+    font-family:"Courier New",monospace;
+    font-size:.75rem;
+  }
+
+  /* ---- LIST VIEW ---- */
+  .list-toolbar{
+    display:flex;gap:10px;align-items:center;
+    padding:16px 4px;flex-wrap:wrap;
+  }
+  .list-toolbar input[type=text]{
+    flex:1;min-width:180px;
+    background:var(--card);
+    border:1px solid var(--line);
+    padding:9px 10px;
+  }
+  table.registry{
+    width:100%;
+    border-collapse:collapse;
+    background:var(--card);
+    border:1px solid var(--line);
+  }
+  table.registry thead th{
+    text-align:left;
+    font-family:"Courier New",monospace;
+    font-size:.72rem;
+    letter-spacing:.03em;
+    color:#EFE6D2;
+    background:var(--navy);
+    padding:9px 12px;
+    position:sticky;top:0;
+  }
+  table.registry tbody td{
+    padding:10px 12px;
+    border-bottom:1px solid var(--line);
+    font-size:.88rem;
+    vertical-align:top;
+  }
+  table.registry tbody tr:hover{background:#F5F1E4;}
+  table.registry .id-cell{font-family:"Courier New",monospace;color:var(--brass);font-size:.82rem;}
+  table.registry .rowbtn{
+    font-family:"Courier New",monospace;
+    font-size:.72rem;
+    padding:4px 9px;
+    border:1px solid var(--navy);
+    background:transparent;
+    color:var(--navy);
+    cursor:pointer;
+    margin-right:5px;
+  }
+  table.registry .rowbtn.del{border-color:var(--danger);color:var(--danger);}
+  .status-badge{
+    display:inline-block;font-family:"Courier New",monospace;font-size:.68rem;
+    padding:3px 8px;border:1px solid; white-space:nowrap;
+  }
+  .status-approved{color:var(--ok);border-color:var(--ok);background:#EAF2E8;}
+  .status-pending{color:#8A6D3B;border-color:var(--brass-light);background:#F5EEDD;}
+  .status-rejected{color:var(--danger);border-color:var(--danger);background:#F6E8E5;}
+  .approvals-subhead{
+    font-family:"Courier New",monospace;font-size:.85rem;color:var(--navy-deep);
+    letter-spacing:.03em;margin:0 0 8px;padding-top:4px;
+  }
+  .users-stat{
+    font-family:"Courier New",monospace;font-size:1rem;color:var(--navy-deep);font-weight:700;
+  }
+
+  /* ---- BOOKING CALENDAR ---- */
+  .cal-card{padding:20px 24px 26px;}
+  .cal-toolbar{
+    display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;
+  }
+  .cal-month-label{
+    font-family:"Courier New",monospace;font-size:.95rem;color:var(--navy-deep);font-weight:700;
+  }
+  .cal-legend{
+    display:flex;gap:18px;font-size:.78rem;color:#5C6459;margin-bottom:14px;
+  }
+  .cal-legend .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle;}
+  .dot-approved{background:var(--ok);}
+  .dot-pending{background:var(--brass);}
+  .cal-grid{
+    display:grid;grid-template-columns:repeat(7,1fr);gap:4px;
+  }
+  .cal-dow{
+    text-align:center;font-family:"Courier New",monospace;font-size:.68rem;color:#8A917F;padding:4px 0;
+  }
+  .cal-day{
+    min-height:56px;border:1px solid var(--line);padding:4px 5px;font-size:.78rem;
+    background:#fff;cursor:default;position:relative;
+  }
+  .cal-day.has-booking{min-height:72px;}
+  .cal-day.blank{background:transparent;border:none;}
+  .cal-day.has-booking{cursor:pointer;}
+  .cal-day.has-booking:hover{background:#F5F1E4;}
+  .cal-day .day-num{font-family:"Courier New",monospace;color:#5C6459;}
+  .cal-day .day-dots{margin-top:4px;display:flex;gap:3px;flex-wrap:wrap;}
+  .cal-day .day-dots .dot{width:7px;height:7px;}
+  .cal-day .day-venues{margin-top:3px;display:flex;flex-direction:column;gap:1px;}
+  .cal-day .day-venue{
+    font-family:"Courier New",monospace;font-size:.62rem;line-height:1.15;
+    color:var(--navy-deep);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .cal-day .day-venue.status-approved{color:var(--ok);}
+  .cal-day .day-venue.status-pending{color:var(--brass);}
+  .cal-day.selected{outline:2px solid var(--navy);}
+  .cal-day-details{margin-top:16px;border-top:1px dashed var(--line);padding-top:14px;}
+  .cal-hint{font-size:.8rem;color:#7D8577;}
+  .cal-day-details h4{margin:0 0 8px;font-family:"Courier New",monospace;font-size:.82rem;color:var(--navy-deep);}
+  .cal-booking-row{
+    display:flex;justify-content:space-between;gap:10px;font-size:.85rem;
+    padding:6px 0;border-bottom:1px dotted var(--line);
+  }
+  .avail-row{
+    display:grid;grid-template-columns:minmax(90px,180px) 1fr 60px;align-items:center;
+    gap:10px;margin-bottom:9px;font-size:.82rem;
+  }
+  .avail-row .avail-label{
+    color:var(--navy-deep);font-family:"Courier New",monospace;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .avail-bar-track{background:#EFEBDF;height:14px;position:relative;overflow:hidden;}
+  .avail-bar-fill{height:100%;background:linear-gradient(90deg,var(--brass-light),var(--brass));}
+  .avail-count{color:#5C6459;font-family:"Courier New",monospace;text-align:right;}
+  .empty-note{
+    padding:40px 20px;text-align:center;color:#7D8577;
+    font-family:"Courier New",monospace;font-size:.85rem;
+  }
+  .checklist{
+    display:flex;flex-wrap:wrap;gap:6px 16px;padding:8px 10px;
+    background:#fff;border:1px solid var(--line);
+  }
+  .checklist label{
+    font-size:.82rem;display:flex;align-items:center;gap:5px;cursor:pointer;
+    font-family:inherit;color:var(--ink);
+  }
+  .checklist input[type="checkbox"]{margin:0;}
+  .checklist .checklist-empty{font-size:.8rem;color:#8A917F;font-family:"Courier New",monospace;}
+
+  /* ---- INVOICE VIEW ---- */
+  .invoice-sheet{padding:28px 32px 36px;}
+  .inv-head{
+    display:flex;justify-content:space-between;align-items:flex-start;
+    flex-wrap:wrap;gap:14px;
+    border-bottom:2px solid var(--navy);
+    padding-bottom:14px;margin-bottom:18px;
+  }
+  .inv-head h2{
+    margin:0;color:var(--navy-deep);font-size:1.3rem;letter-spacing:.04em;
+  }
+  .inv-meta{
+    text-align:right;font-family:"Courier New",monospace;font-size:.8rem;color:#5C6459;
+  }
+  .inv-meta div{margin-bottom:3px;display:flex;gap:8px;justify-content:flex-end;}
+  .inv-meta span{color:#8A917F;}
+  .inv-meta strong{color:var(--navy-deep);}
+  .inv-parties{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;}
+  .inv-box h4{
+    margin:0 0 6px;font-family:"Courier New",monospace;font-size:.72rem;
+    color:var(--navy);letter-spacing:.04em;
+  }
+  .inv-box p{margin:2px 0;font-size:.88rem;}
+  table.inv-table{width:100%;border-collapse:collapse;margin-bottom:14px;}
+  table.inv-table thead th{
+    text-align:left;font-family:"Courier New",monospace;font-size:.72rem;
+    letter-spacing:.03em;color:#EFE6D2;background:var(--navy);padding:8px 10px;
+  }
+  table.inv-table tbody td{
+    padding:12px 10px;border-bottom:1px solid var(--line);font-size:.9rem;vertical-align:top;
+  }
+  table.inv-table tfoot td{
+    padding:7px 10px;font-size:.88rem;border-top:1px dashed var(--line);
+  }
+  table.inv-table tfoot tr.inv-balance td{
+    font-weight:700;font-size:1rem;color:var(--navy-deep);border-top:2px solid var(--navy);
+  }
+  .inv-note{color:#5C6459;font-size:.8rem;}
+  .inv-words{font-size:.85rem;margin:4px 0;}
+  .inv-sign{
+    display:flex;justify-content:space-between;gap:30px;margin-top:36px;flex-wrap:wrap;
+  }
+  .inv-sign > div{flex:1;min-width:200px;}
+  .inv-line{border-bottom:1px solid var(--ink);height:34px;}
+  .inv-sign span{font-size:.78rem;color:#5C6459;}
+  .inv-footer{
+    margin-top:22px;font-size:.78rem;color:#7D8577;text-align:center;
+    border-top:1px dashed var(--line);padding-top:12px;
+  }
+
+  .inv-terms{
+    margin-top:26px;border-top:2px solid var(--navy);padding-top:14px;
+  }
+  .inv-terms h4{
+    margin:0 0 8px;font-family:"Courier New",monospace;font-size:.78rem;
+    color:var(--navy);letter-spacing:.04em;text-transform:uppercase;
+  }
+  .inv-terms ol{
+    margin:0;padding-left:18px;font-size:.76rem;line-height:1.55;color:#3A4038;
+  }
+  .inv-terms ol li{margin-bottom:6px;}
+  .inv-terms .inv-terms-note{
+    margin:10px 0 0;font-size:.76rem;line-height:1.5;color:#3A4038;
+    background:#F5E9DC;border:1px solid var(--brass-light);padding:8px 12px;
+  }
+  .inv-terms .inv-terms-note strong{color:#7A4A1F;}
+  @media print{
+    .inv-terms{break-inside:avoid;}
+    .inv-terms ol li{break-inside:avoid;}
+  }
+
+  @media (max-width:720px){
+    .grid,.grid.g3{grid-template-columns:1fr;}
+    .field.span2,.field.span3{grid-column:span 1;}
+    .inv-parties{grid-template-columns:1fr;}
+  }
+
+  /* ---- LOGIN / MULTI-USER PORTAL OVERLAY ---- */
+  .login-overlay{
+    position:fixed;inset:0;z-index:9999;
+    background:radial-gradient(circle at 30% 20%, #24413A, var(--navy-deep) 65%);
+    display:flex;align-items:center;justify-content:center;
+    padding:20px;
+  }
+  .login-card{
+    background:var(--card);
+    border:1px solid var(--line);
+    padding:32px 34px 26px;
+    width:100%;max-width:360px;
+    text-align:center;
+    box-shadow:0 12px 40px rgba(0,0,0,.35);
+  }
+  .login-card h2{margin:0 0 4px;color:var(--navy-deep);font-size:1.15rem;}
+  .login-sub{margin:0 0 18px;font-size:.8rem;color:#5C6459;}
+  .login-card .field{text-align:left;margin-bottom:12px;}
+  .login-card label{font-size:.72rem;color:#5C6459;font-family:"Courier New",monospace;}
+  .login-card input{width:100%;border:none;border-bottom:1.5px solid var(--line);padding:8px 4px;font-size:.92rem;background:transparent;}
+  .login-card input:focus{outline:none;border-bottom-color:var(--navy);}
+  .loginbtn{width:100%;margin-top:6px;padding:11px;font-size:.85rem;}
+  .login-switch{font-size:.8rem;margin:14px 0 0;color:#5C6459;}
+  .login-switch a{color:var(--brass);text-decoration:underline;cursor:pointer;}
+  .login-error{color:var(--danger);font-size:.8rem;min-height:1.1em;margin:12px 0 0;}
+  .login-submitted{color:var(--ok);font-size:.85rem;line-height:1.5;margin:10px 0;}
+  .login-note{font-size:.68rem;color:#8A917F;margin:14px 0 0;border-top:1px dashed var(--line);padding-top:10px;}
+
+  .userbadge{
+    align-self:center;color:#CFE0CC;font-family:"Courier New",monospace;
+    font-size:.75rem;padding-right:14px;display:flex;align-items:center;gap:8px;
+  }
+  .userbadge .role-tag{
+    font-size:.65rem;padding:2px 6px;border:1px solid var(--brass);color:var(--brass-light);
+  }
+  .userbadge .logoutlink{color:var(--brass-light);text-decoration:underline;cursor:pointer;}
+
+  .page-table{ width:100%; border-collapse:collapse; display:block; }
+  .page-table thead, .page-table tbody, .page-table tr, .page-table td{ display:block; padding:0; border:none; }
+
+  @media print{
+    .login-overlay{display:none!important;}
+    .page-table{ display:table; }
+    .page-table thead{ display:table-header-group; }
+    .page-table tbody{ display:table-row-group; }
+    .page-table tr{ display:table-row; }
+    .page-table td{ display:table-cell; }
+    nav.tabs,.actionbar,.list-toolbar{display:none!important;}
+    body{background:#fff;}
+    main{padding:0;max-width:none;}
+    .card{border:none;box-shadow:none;}
+    section.block{break-inside:avoid;padding:10px 4px;}
+    input,select,textarea{border-bottom:1px solid #999;}
+  }
+</style>
+</head>
+<body>
+
+<div id="loginOverlay" class="login-overlay">
+  <div class="login-card">
+    <h2>Booking Organizer Portal</h2>
+    <p class="login-sub">Sign in to access the shared SLA register &amp; invoicing database.</p>
+
+    <div id="loginForm">
+      <div class="field"><label>Username</label><input type="text" id="li_user" autocomplete="username"></div>
+      <div class="field"><label>Password</label><input type="password" id="li_pass" autocomplete="current-password"></div>
+      <button class="btn primary loginbtn" id="loginBtn">Sign In</button>
+      <p class="login-switch">New vendor? <a href="#" id="showRegister">Create an account</a></p>
+    </div>
+
+    <div id="registerForm" style="display:none;">
+      <div class="field"><label>Full Name / Firm</label><input type="text" id="rg_name"></div>
+      <div class="field"><label>Choose Username</label><input type="text" id="rg_user" autocomplete="username"></div>
+      <div class="field"><label>Choose Password</label><input type="password" id="rg_pass" autocomplete="new-password"></div>
+      <button class="btn primary loginbtn" id="registerBtn">Request Vendor Account</button>
+      <p class="login-switch">Already have an account? <a href="#" id="showLogin">Sign in</a></p>
+    </div>
+
+    <div id="registerSubmitted" style="display:none;">
+      <p class="login-submitted">Your request has been sent to the Admin for approval. You'll be able to sign in once it's approved.</p>
+      <p class="login-switch"><a href="#" id="showLogin2">Back to Sign In</a></p>
+    </div>
+
+    <p class="login-error" id="loginError"></p>
+    <p class="login-note" id="loginNote">Note: this portal's records and login list are shared with everyone who has access to this link.</p>
+  </div>
+</div>
+
+<table class="page-table">
+<thead>
+<tr><td>
+<div class="letterhead">
+  <div class="letterhead-meta">
+    <div class="letterhead-line1">Event Planning &amp; Catering Coordination</div>
+    <div class="letterhead-line2">Karachi, Pakistan</div>
+  </div>
+</div>
+</td></tr>
+</thead>
+<tbody>
+<tr><td>
+<header class="masthead">
+  <div class="crest-row">
+    <h1>Booking Organizer — Catering &amp; Decoration SLA Register</h1>
+  </div>
+  <div class="sub">Mandatory Service Level Agreement — digital register with automatic unique ID assignment</div>
+</header>
+
+<nav class="tabs">
+  <button id="tabFormBtn" class="active">New / Edit Form</button>
+  <button id="tabListBtn">All Records</button>
+  <button id="tabInvoiceBtn">Customer Invoice</button>
+  <button id="tabCalendarBtn">Booking Calendar</button>
+  <button id="tabApprovalsBtn" style="display:none;">Approvals</button>
+  <button id="tabUsersBtn" style="display:none;">Users</button>
+  <button id="tabVenuesBtn" style="display:none;">Venues</button>
+  <button id="tabDecorBtn" style="display:none;">Decor Items</button>
+  <div class="spacer"></div>
+  <div class="userbadge" id="userBadge"></div>
+  <div class="dbcount" id="dbCount">Database: — records</div>
+  <div class="idbox" id="navIdBox">…</div>
+</nav>
+
+<main>
+
+  <!-- ================= FORM VIEW ================= -->
+  <div id="viewForm">
+    <div class="card form-sheet">
+      <div class="sheet-head">
+        <h2>Agreement for Catering / Decoration Services</h2>
+        <div class="rec-id" id="recIdDisplay">ID: —</div>
+      </div>
+      <div class="creator-info" id="creatorInfo"></div>
+      <div class="readonly-banner" id="readOnlyBanner" style="display:none;">
+        🔒 Read-only — this record is already saved. Only an Admin can edit or delete it.
+      </div>
+
+      <section class="block">
+        <h3>Agreement Date &amp; Location</h3>
+        <div class="grid g3">
+          <div class="field"><label>Day of Signing</label><input type="text" id="f_day" placeholder="e.g. 14th"></div>
+          <div class="field"><label>Month, Year</label><input type="text" id="f_month" placeholder="e.g. September, 2026"></div>
+          <div class="field"><label>Place</label><input type="text" id="f_place" value="Karachi"></div>
+        </div>
+      </section>
+
+      <section class="block">
+        <h3>Client (Event Owner)</h3>
+        <div class="grid">
+          <div class="field span2"><label>Name (Mr./Ms.)</label><input type="text" id="f_clientName"></div>
+          <div class="field span2"><label>S/o, W/o, D/o</label><input type="text" id="f_clientRel"></div>
+          <div class="field"><label>CNIC No.</label><input type="text" id="f_cnic"></div>
+          <div class="field"><label>Contact No.</label><input type="text" id="f_clientContact"></div>
+          <div class="field span2"><label>Residential Address</label><textarea id="f_address"></textarea></div>
+        </div>
+      </section>
+
+      <section class="block">
+        <h3>Vendor (Service Provider)</h3>
+        <div class="grid">
+          <div class="field span2"><label>Name of Firm (M/s.)</label><input type="text" id="f_firm"></div>
+          <div class="field"><label>Representative Name (Mr.)</label><input type="text" id="f_repName"></div>
+          <div class="field"><label>Contact No.</label><input type="text" id="f_repContact"></div>
+        </div>
+      </section>
+
+      <section class="block">
+        <h3>Event Details</h3>
+        <div class="grid g3">
+          <div class="field"><label>Type of Event</label>
+            <select id="f_eventType">
+              <option>Mehndi</option><option>Barat</option><option>Valima</option>
+              <option>Birthday</option><option>Corporate</option><option>Other</option>
+            </select>
+          </div>
+          <div class="field"><label>If Other, specify</label><input type="text" id="f_eventTypeOther"></div>
+          <div class="field"><label>Date of Event</label><input type="date" id="f_eventDate"></div>
+          <div class="field"><label>Day</label><input type="text" id="f_eventDay" placeholder="auto-fills from date" readonly></div>
+          <div class="field"><label>Event Venue</label>
+            <select id="f_venue">
+              <option value="">Loading venues…</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="field"><label>If Other, specify</label><input type="text" id="f_venueOther"></div>
+          <div class="field"><label>Venue Location</label><input type="text" id="f_venueLocation" placeholder="auto-fills from venue, editable"></div>
+          <div class="field"><label>Setup Ready By</label><input type="time" id="f_setupTime"></div>
+          <div class="field"><label>Event Start Time</label><input type="time" id="f_startTime"></div>
+          <div class="field"><label>Estimated Guests</label><input type="number" min="0" id="f_guests"></div>
+        </div>
+      </section>
+
+      <section class="block">
+        <h3>Catering Services — Food &amp; Beverages</h3>
+        <div class="grid">
+          <div class="field"><label>Menu Type</label>
+            <select id="f_menuType"><option>Buffet</option><option>Sitting Dinner</option><option>Hi-Tea</option><option>Other</option></select>
+          </div>
+          <div class="field"><label>If Other, specify</label><input type="text" id="f_menuTypeOther"></div>
+          <div class="field span2"><label>Detailed Food Items (starter, main, desserts, beverages)</label>
+            <textarea id="f_foodItems" placeholder="One item per line" rows="4"></textarea>
+          </div>
+        </div>
+      </section>
+
+      <section class="block">
+        <h3>Decoration &amp; Setup Standards</h3>
+        <div class="grid">
+          <div class="field span2"><label>Theme / Color Scheme</label><input type="text" id="f_theme"></div>
+          <div class="field"><label>Stage Decoration</label>
+            <select id="f_stage"><option>Full backdrop — fresh flowers</option><option>Artificial flowers</option><option>Fabric</option><option>Other</option></select>
+          </div>
+          <div class="field"><label>If Other, specify</label><input type="text" id="f_stageOther"></div>
+          <div class="field span2"><label>Detailed Description</label><textarea id="f_stageDesc"></textarea></div>
+          <div class="field"><label>Entrance Decoration</label>
+            <select id="f_entrance"><option>Welcome arch</option><option>Floral gate</option><option>None</option><option>Other</option></select>
+          </div>
+          <div class="field"><label>If Other, specify</label><input type="text" id="f_entranceOther"></div>
+          <div class="field"><label>Lighting</label>
+            <select id="f_lighting"><option>Simple</option><option>Uplighting</option><option>Fairy lights</option><option>Spotlights</option><option>Other</option></select>
+          </div>
+          <div class="field"><label>If Other, specify</label><input type="text" id="f_lightingOther"></div>
+          <div class="field"><label>Floor Covering</label>
+            <select id="f_floor"><option>Red Carpet</option><option>Regular Flooring</option><option>Other</option></select>
+          </div>
+          <div class="field"><label>If Other, specify</label><input type="text" id="f_floorOther"></div>
+          <div class="field span2"><label>Decoration Items (select all that apply)</label>
+            <div class="checklist" id="decorItemsChecklist"></div>
+            <input type="hidden" id="f_decorItems">
+          </div>
+          <div class="field span2"><label>Additional Decor (centerpieces, aisle, etc.)</label><input type="text" id="f_addlDecor"></div>
+        </div>
+      </section>
+
+      <section class="block">
+        <h3>Furniture &amp; Manpower Commitment</h3>
+        <table class="furniture-table">
+          <tr><td>Sofas</td><td class="qty"><input type="number" min="0" id="f_sofas"> Units</td></tr>
+          <tr><td>General Chairs (Guest)</td><td class="qty"><input type="number" min="0" id="f_chairs"> Units</td></tr>
+          <tr><td>Tables (Dining)</td><td class="qty"><input type="number" min="0" id="f_tablesDining"> Units</td></tr>
+          <tr><td>Tables (Buffet)</td><td class="qty"><input type="number" min="0" id="f_tablesBuffet"> Units</td></tr>
+          <tr><td>Waiters / Service Staff</td><td class="qty"><input type="number" min="0" id="f_waiters"> Persons (Uniformed)</td></tr>
+          <tr><td>Chefs / Kitchen Staff</td><td class="qty"><input type="number" min="0" id="f_chefs"> Persons</td></tr>
+          <tr><td>Total Staff on Site</td><td class="qty"><input type="number" min="0" id="f_totalStaff"> Persons</td></tr>
+        </table>
+      </section>
+
+      <section class="block">
+        <h3>Financial Terms</h3>
+        <div class="grid g3">
+          <div class="field"><label>Total Agreed Package (Rs.)</label><input type="number" min="0" id="f_totalCost"></div>
+          <div class="field"><label>Advance Payment Paid (Rs.)</label><input type="number" min="0" id="f_advance"></div>
+          <div class="field"><label>Date Paid</label><input type="date" id="f_advanceDate"></div>
+          <div class="field"><label>Remaining Balance (Rs.)</label><input type="number" min="0" id="f_balance" readonly></div>
+          <div class="field"><label>Balance Due On</label>
+            <select id="f_dueOn"><option>Event Day</option><option>As agreed</option></select>
+          </div>
+          <div class="field"><label>Mode of Payment</label>
+            <select id="f_payMode"><option>Cash</option><option>Bank Transfer</option><option>Cheque</option></select>
+          </div>
+          <div class="field" id="chequeWrap" style="display:none;"><label>Cheque No.</label><input type="text" id="f_chequeNo"></div>
+          <div class="field" id="bankWrap" style="display:none;"><label>Bank Name</label>
+            <select id="f_bankName">
+              <option>Habib Bank Limited (HBL)</option>
+              <option>United Bank Limited (UBL)</option>
+              <option>MCB Bank</option>
+              <option>Allied Bank Limited (ABL)</option>
+              <option>Bank Alfalah</option>
+              <option>Meezan Bank</option>
+              <option>National Bank of Pakistan (NBP)</option>
+              <option>Standard Chartered Pakistan</option>
+              <option>Faysal Bank</option>
+              <option>Askari Bank</option>
+              <option>Bank Al Habib</option>
+              <option>JS Bank</option>
+              <option>Soneri Bank</option>
+              <option>Summit Bank</option>
+              <option>Silk Bank</option>
+              <option>Other</option>
+            </select>
+          </div>
+          <div class="field" id="bankOtherWrap" style="display:none;"><label>If Other, specify</label><input type="text" id="f_bankNameOther"></div>
+          <div class="field"><label>Account / Transaction No.</label><input type="text" id="f_bankAccNo" placeholder="optional"></div>
+        </div>
+      </section>
+
+      <section class="block">
+        <h3>Cancellation &amp; Refund Policy</h3>
+        <div class="grid g3">
+          <div class="field"><label>Refund if cancelled &gt;30 days before (%)</label><input type="number" min="0" max="100" id="f_refund30"></div>
+          <div class="field"><label>Refund if cancelled 7–30 days before (%)</label><input type="number" min="0" max="100" id="f_refund7"></div>
+          <div class="field"><label>&lt;7 days before</label><input type="text" value="Advance non-refundable" readonly></div>
+        </div>
+        <p style="font-size:.82rem;color:#5C6459;margin:10px 0 0;">If Vendor cancels, Vendor refunds 100% of advance received. Force Majeure (war, strikes, government bans, floods/rains, death in family — reported within 12 hours) permits event re-scheduling or full advance return.</p>
+      </section>
+
+      <section class="block">
+        <h3>Special Commitments</h3>
+        <div class="field"><label>Specific promises made by the Vendor</label>
+          <textarea id="f_special" placeholder="e.g. Dedicated event coordinator on site, specific type of flower"></textarea>
+        </div>
+      </section>
+
+      <section class="block">
+        <h3>Acknowledgment &amp; Signatures</h3>
+        <div class="grid">
+          <div class="field"><label>Booking Agent (logged-in user)</label><input type="text" id="f_agentName" readonly></div>
+          <div class="field"><label>Vendor — Name</label><input type="text" id="f_vendorSignName"></div>
+          <div class="field"><label>Vendor — Date</label><input type="date" id="f_vendorSignDate"></div>
+          <div class="field"><label>Client — Name</label><input type="text" id="f_clientSignName"></div>
+          <div class="field"><label>Client — Date</label><input type="date" id="f_clientSignDate"></div>
+        </div>
+      </section>
+
+      <section class="block">
+        <h3>For Office Records</h3>
+        <div class="grid g3">
+          <div class="field"><label>Received By</label><input type="text" id="f_receivedBy"></div>
+          <div class="field"><label>Date</label><input type="date" id="f_receivedDate"></div>
+          <div class="field"><label>Time</label><input type="time" id="f_receivedTime"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ================= LIST VIEW ================= -->
+  <div id="viewList" style="display:none;">
+    <div class="list-toolbar">
+      <input type="text" id="searchBox" placeholder="Search by ID, client name, firm, or venue…">
+      <button class="btn primary" id="newFromListBtn">+ New Record</button>
+    </div>
+    <div class="card" style="overflow-x:auto;">
+      <table class="registry" id="registryTable">
+        <thead>
+          <tr>
+            <th>Unique ID</th>
+            <th>Client</th>
+            <th>Vendor Firm</th>
+            <th>Event Date</th>
+            <th>Venue</th>
+            <th>Total Cost</th>
+            <th>Status</th>
+            <th>Created By</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="registryBody"></tbody>
+      </table>
+      <div class="empty-note" id="emptyNote" style="display:none;">No records yet. Fill the form and click "Save as New Record" to begin the register.</div>
+    </div>
+  </div>
+
+  <!-- ================= CUSTOMER INVOICE VIEW ================= -->
+  <div id="viewInvoice" style="display:none;">
+    <div class="card invoice-sheet" id="invoiceSheet">
+      <!-- populated dynamically by renderInvoice() -->
+    </div>
+  </div>
+
+  <!-- ================= ADMIN: PENDING APPROVALS VIEW ================= -->
+  <div id="viewApprovals" style="display:none;">
+    <h3 class="approvals-subhead">Bookings Awaiting Approval</h3>
+    <div class="card" style="overflow-x:auto;margin-bottom:22px;">
+      <table class="registry" id="bookingApprovalsTable">
+        <thead>
+          <tr>
+            <th>Unique ID</th>
+            <th>Client</th>
+            <th>Event Date</th>
+            <th>Venue</th>
+            <th>Submitted By</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="bookingApprovalsBody"></tbody>
+      </table>
+      <div class="empty-note" id="bookingApprovalsEmptyNote" style="display:none;">No bookings waiting for approval.</div>
+    </div>
+
+    <h3 class="approvals-subhead">Vendor Account Requests</h3>
+    <div class="card" style="overflow-x:auto;">
+      <table class="registry" id="approvalsTable">
+        <thead>
+          <tr>
+            <th>Requested Username</th>
+            <th>Full Name / Firm</th>
+            <th>Requested At</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="approvalsBody"></tbody>
+      </table>
+      <div class="empty-note" id="approvalsEmptyNote" style="display:none;">No pending vendor requests.</div>
+    </div>
+  </div>
+
+  <!-- ================= ADMIN: USERS VIEW ================= -->
+  <div id="viewUsers" style="display:none;">
+    <div class="card" style="padding:18px 24px;margin-bottom:16px;">
+      <div class="users-stat" id="usersStat">Total login IDs created: —</div>
+    </div>
+    <div class="card" style="overflow-x:auto;">
+      <table class="registry" id="usersTable">
+        <thead>
+          <tr>
+            <th>Username</th>
+            <th>Password</th>
+            <th>Name / Firm</th>
+            <th>Role</th>
+            <th>Total Bookings</th>
+            <th>Account Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="usersBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ================= VENUES VIEW (Admin-only: manage venue name + location) ================= -->
+  <div id="viewVenues" style="display:none;">
+    <div class="card" style="padding:18px 24px;margin-bottom:16px;">
+      <div class="grid g3" style="align-items:end;">
+        <div class="field"><label>Venue Name</label><input type="text" id="newVenueName" placeholder="e.g. Rose Garden"></div>
+        <div class="field"><label>Location</label><input type="text" id="newVenueLocation" placeholder="e.g. 12 Mall Road, Lahore"></div>
+        <div class="field"><button class="btn primary" id="addVenueBtn" style="width:100%;">+ Add Venue</button></div>
+      </div>
+    </div>
+    <div class="card" style="overflow-x:auto;">
+      <table class="registry" id="venuesTable">
+        <thead>
+          <tr><th>Venue Name</th><th>Location</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="venuesBody"></tbody>
+      </table>
+      <div class="empty-note" id="venuesEmptyNote" style="display:none;">No venues yet. Add one above.</div>
+    </div>
+  </div>
+
+  <!-- ================= DECOR ITEMS VIEW (Admin-only: manage the decoration-items checklist) ================= -->
+  <div id="viewDecor" style="display:none;">
+    <div class="card" style="padding:18px 24px;margin-bottom:16px;">
+      <div class="grid g3" style="align-items:end;">
+        <div class="field span2"><label>Decoration Item</label><input type="text" id="newDecorName" placeholder="e.g. Fairy Lights Canopy"></div>
+        <div class="field"><button class="btn primary" id="addDecorBtn" style="width:100%;">+ Add Item</button></div>
+      </div>
+    </div>
+    <div class="card" style="overflow-x:auto;">
+      <table class="registry" id="decorTable">
+        <thead>
+          <tr><th>Decoration Item</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="decorBody"></tbody>
+      </table>
+      <div class="empty-note" id="decorEmptyNote" style="display:none;">No decoration items yet. Add one above.</div>
+    </div>
+  </div>
+
+  <!-- ================= BOOKING CALENDAR VIEW (visible to everyone) ================= -->
+  <div id="viewCalendar" style="display:none;">
+    <div class="card cal-card">
+      <div class="cal-toolbar">
+        <button class="btn" id="calPrev">‹ Prev</button>
+        <div class="cal-month-label" id="calMonthLabel">—</div>
+        <button class="btn" id="calNext">Next ›</button>
+      </div>
+      <div class="cal-legend">
+        <span><span class="dot dot-approved"></span> Approved</span>
+        <span><span class="dot dot-pending"></span> Pending Approval</span>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
+      <div class="cal-day-details" id="calDayDetails">
+        <p class="cal-hint">Click a highlighted date to see which venue(s) are already booked, so you can avoid double-booking.</p>
+      </div>
+    </div>
+
+    <div class="card cal-card" style="margin-top:16px;">
+      <h3 class="approvals-subhead">Venue Availability This Month</h3>
+      <div id="availabilityChart"></div>
+    </div>
+  </div>
+
+</main>
+
+<div class="actionbar">
+  <button class="btn primary" id="saveNewBtn">Save Record</button>
+  <button class="btn" id="clearBtn">Start New (Fresh ID)</button>
+  <button class="btn" id="printBtn">Print / Export</button>
+  <span class="status" id="statusMsg"></span>
+</div>
+</td></tr>
+</tbody>
+</table>
+
+<script>
+(function(){
+  const FIELD_IDS = [
+    'f_day','f_month','f_place','f_clientName','f_clientRel','f_cnic','f_clientContact','f_address',
+    'f_firm','f_repName','f_repContact','f_eventType','f_eventTypeOther','f_eventDate','f_eventDay',
+    'f_venue','f_venueOther','f_venueLocation','f_setupTime','f_startTime','f_guests','f_menuType','f_menuTypeOther',
+    'f_foodItems','f_theme','f_stage','f_stageOther','f_stageDesc','f_entrance','f_entranceOther',
+    'f_lighting','f_lightingOther','f_floor','f_floorOther','f_decorItems','f_addlDecor','f_sofas','f_chairs',
+    'f_tablesDining','f_tablesBuffet','f_waiters','f_chefs','f_totalStaff','f_totalCost','f_advance',
+    'f_advanceDate','f_balance','f_dueOn','f_payMode','f_chequeNo','f_bankName','f_bankNameOther','f_bankAccNo','f_refund30','f_refund7','f_special',
+    'f_vendorSignName','f_vendorSignDate','f_clientSignName','f_clientSignDate','f_agentName','f_receivedBy',
+    'f_receivedDate','f_receivedTime'
+  ];
+
+  // ---------- resilient database layer ----------
+  // window.storage only exists inside Claude's own artifact runtime. If this file
+  // is opened as a plain downloaded HTML page (double-clicked, opened in a normal
+  // browser tab), window.storage is undefined and every call would silently fail —
+  // that was the login issue. This wrapper detects that case and transparently
+  // falls back to the browser's own localStorage so the portal always works.
+  const HAS_CLOUD_DB = (typeof window.storage !== 'undefined' && window.storage !== null);
+  const LS_PREFIX = (shared) => shared ? 'ask_sla_shared:' : 'ask_sla_local:';
+
+  async function dbGet(key, shared){
+    if(HAS_CLOUD_DB){
+      try{ return await dbGet(key, shared); }catch(e){ return null; }
+    }
+    try{
+      const raw = localStorage.getItem(LS_PREFIX(shared) + key);
+      return (raw !== null) ? { key, value: raw, shared } : null;
+    }catch(e){ return null; }
+  }
+  async function dbSet(key, value, shared){
+    if(HAS_CLOUD_DB){
+      try{ return await dbSet(key, value, shared); }catch(e){ return null; }
+    }
+    try{
+      localStorage.setItem(LS_PREFIX(shared) + key, value);
+      return { key, value, shared };
+    }catch(e){ return null; }
+  }
+  async function dbDelete(key, shared){
+    if(HAS_CLOUD_DB){
+      try{ return await dbDelete(key, shared); }catch(e){ return null; }
+    }
+    try{
+      localStorage.removeItem(LS_PREFIX(shared) + key);
+      return { key, deleted: true, shared };
+    }catch(e){ return null; }
+  }
+  async function dbList(prefix, shared){
+    if(HAS_CLOUD_DB){
+      try{ return await dbList(prefix, shared); }catch(e){ return null; }
+    }
+    try{
+      const p = LS_PREFIX(shared) + (prefix || '');
+      const keys = [];
+      for(let i = 0; i < localStorage.length; i++){
+        const k = localStorage.key(i);
+        if(k && k.indexOf(p) === 0) keys.push(k.slice(LS_PREFIX(shared).length));
+      }
+      return { keys, prefix, shared };
+    }catch(e){ return null; }
+  }
+
+  let currentId = null; // null = unsaved new record
+  let recordIsExisting = false; // true once a saved record has been loaded (edit-locked for non-admins)
+  let currentRecordMeta = null; // { _createdBy, _createdByName, _status } of a loaded existing record
+  let currentUser = null; // { username, name, role } once logged in
+  const $ = (id) => document.getElementById(id);
+
+  // ---------- multi-user auth (shared across the whole portal) ----------
+  const USERS_KEY = 'auth:users';
+
+  async function getUsers(){
+    try{
+      const res = await dbGet(USERS_KEY, true);
+      return (res && res.value) ? JSON.parse(res.value) : null;
+    }catch(e){ return null; }
+  }
+  async function saveUsers(users){
+    await dbSet(USERS_KEY, JSON.stringify(users), true);
+  }
+  async function seedAdminIfNeeded(){
+    let users = await getUsers();
+    if(!users){
+      users = { admin: { password: 'admin123', role: 'Admin', name: 'Booking Organizer Admin' } };
+      await saveUsers(users);
+    }
+    return users;
+  }
+  async function tryLogin(username, password){
+    const users = await seedAdminIfNeeded();
+    const u = users[username];
+    if(!u || u.password !== password) return null;
+    if(u.blocked) return { blocked: true };
+    return { username, name: u.name, role: u.role };
+  }
+
+  // ---------- venues (Admin-managed, shared across the whole portal) ----------
+  const VENUES_KEY = 'venues:list';
+  const DEFAULT_VENUES = [
+    { name: 'Lawn A', location: '' },
+    { name: 'Lawn B', location: '' },
+    { name: 'Lawn C', location: '' },
+    { name: 'Pool side', location: '' },
+    { name: 'Hall', location: '' }
+  ];
+  async function getVenues(){
+    try{
+      const res = await dbGet(VENUES_KEY, true);
+      return (res && res.value) ? JSON.parse(res.value) : null;
+    }catch(e){ return null; }
+  }
+  async function saveVenues(venues){
+    await dbSet(VENUES_KEY, JSON.stringify(venues), true);
+  }
+  async function seedVenuesIfNeeded(){
+    let venues = await getVenues();
+    if(!venues || !venues.length){
+      venues = DEFAULT_VENUES.slice();
+      await saveVenues(venues);
+    }
+    return venues;
+  }
+  // Fills the Event Venue dropdown from the Admin-managed venue list, keeping
+  // whatever value was already selected if it still exists in the list.
+  async function populateVenueSelect(){
+    const venues = await seedVenuesIfNeeded();
+    const sel = $('f_venue');
+    const prevValue = sel.value;
+    sel.innerHTML = venues.map(v =>
+      '<option value="' + escapeHtml(v.name) + '">' + escapeHtml(v.name) + '</option>'
+    ).join('') + '<option value="Other">Other</option>';
+    if(prevValue && Array.from(sel.options).some(o => o.value === prevValue)){
+      sel.value = prevValue;
+    }
+    return venues;
+  }
+  // Auto-fills the Venue Location field from the selected venue's saved
+  // location; the field stays editable so it can be corrected for "Other".
+  async function syncVenueLocationField(force){
+    const venues = await getVenues() || [];
+    const match = venues.find(v => v.name === $('f_venue').value);
+    if(match && (force || !$('f_venueLocation').value)){
+      $('f_venueLocation').value = match.location || '';
+    }
+  }
+  $('f_venue').addEventListener('change', () => syncVenueLocationField(true));
+  // If a saved record references a venue that was later renamed/removed from
+  // the Admin-managed list, keep it selectable so the record still displays
+  // its original venue correctly instead of silently blanking the field.
+  function ensureVenueOptionExists(name){
+    if(!name) return;
+    const sel = $('f_venue');
+    if(!Array.from(sel.options).some(o => o.value === name)){
+      const opt = document.createElement('option');
+      opt.value = name; opt.textContent = name + ' (archived)';
+      sel.insertBefore(opt, sel.lastElementChild); // keep 'Other' last
+    }
+  }
+
+  // ---------- decoration items (Admin-managed checklist, shared across the portal) ----------
+  const DECOR_KEY = 'decor:list';
+  const DEFAULT_DECOR_ITEMS = [
+    'Fresh Flowers', 'Artificial Flowers', 'Fairy Lights', 'Candles',
+    'Balloons', 'Drapery / Fabric Backdrop', 'Centerpieces'
+  ];
+  async function getDecorItems(){
+    try{
+      const res = await dbGet(DECOR_KEY, true);
+      return (res && res.value) ? JSON.parse(res.value) : null;
+    }catch(e){ return null; }
+  }
+  async function saveDecorItems(items){
+    await dbSet(DECOR_KEY, JSON.stringify(items), true);
+  }
+  async function seedDecorItemsIfNeeded(){
+    let items = await getDecorItems();
+    if(!items || !items.length){
+      items = DEFAULT_DECOR_ITEMS.slice();
+      await saveDecorItems(items);
+    }
+    return items;
+  }
+  // Builds the checkbox list in the form from the Admin-managed items, and
+  // restores whichever ones are already selected on the hidden field.
+  async function renderDecorChecklist(){
+    const items = await seedDecorItemsIfNeeded();
+    const selected = ($('f_decorItems').value || '').split(',').map(s => s.trim()).filter(Boolean);
+    const box = $('decorItemsChecklist');
+    if(!items.length){
+      box.innerHTML = '<span class="checklist-empty">No decoration items set up yet — an Admin can add some under the "Decor Items" tab.</span>';
+      return;
+    }
+    box.innerHTML = items.map((name, i) => {
+      const id = 'decorChk' + i;
+      const checked = selected.includes(name) ? ' checked' : '';
+      return '<label for="' + id + '"><input type="checkbox" id="' + id + '" value="' + escapeHtml(name) + '"' + checked + '> ' + escapeHtml(name) + '</label>';
+    }).join('');
+    box.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const picked = Array.from(box.querySelectorAll('input[type="checkbox"]:checked')).map(c => c.value);
+        $('f_decorItems').value = picked.join(', ');
+      });
+    });
+  }
+
+  const PENDING_KEY = 'auth:pending';
+  async function getPending(){
+    try{
+      const res = await dbGet(PENDING_KEY, true);
+      return (res && res.value) ? JSON.parse(res.value) : {};
+    }catch(e){ return {}; }
+  }
+  async function savePending(pending){
+    await dbSet(PENDING_KEY, JSON.stringify(pending), true);
+  }
+
+  // Vendor self-registration only files a request — an Admin must approve it
+  // before the account can sign in.
+  async function requestVendorAccount(username, password, name){
+    if(!username || !password || !name) return { error: 'Please fill in every field.' };
+    const users = await seedAdminIfNeeded();
+    if(users[username]) return { error: 'That username is already taken.' };
+    const pending = await getPending();
+    if(pending[username]) return { error: 'A request for that username is already pending approval.' };
+    pending[username] = { password, name, role: 'Vendor', requestedAt: new Date().toISOString() };
+    await savePending(pending);
+    return { submitted: true };
+  }
+
+  async function approveVendor(username){
+    const pending = await getPending();
+    const req = pending[username];
+    if(!req) return;
+    const users = await seedAdminIfNeeded();
+    users[username] = { password: req.password, role: req.role, name: req.name };
+    await saveUsers(users);
+    delete pending[username];
+    await savePending(pending);
+  }
+  async function rejectVendor(username){
+    const pending = await getPending();
+    delete pending[username];
+    await savePending(pending);
+  }
+
+  async function restoreSession(){
+    try{
+      const res = await dbGet('session:user', false);
+      if(res && res.value) return JSON.parse(res.value);
+    }catch(e){ /* no session yet */ }
+    return null;
+  }
+  async function persistSession(user){
+    try{ await dbSet('session:user', JSON.stringify(user), false); }catch(e){}
+  }
+  async function clearSession(){
+    try{ await dbDelete('session:user', false); }catch(e){}
+  }
+
+  function updateUserBadge(){
+    if(!currentUser){ $('userBadge').innerHTML = ''; return; }
+    $('userBadge').innerHTML =
+      '👤 ' + escapeHtml(currentUser.name || currentUser.username) +
+      ' <span class="role-tag">' + escapeHtml(currentUser.role) + '</span>' +
+      ' <span class="logoutlink" id="logoutLink">Logout</span>';
+    $('logoutLink').addEventListener('click', async () => {
+      await clearSession();
+      currentUser = null;
+      $('loginOverlay').style.display = 'flex';
+      $('li_user').value = ''; $('li_pass').value = '';
+    });
+    const isAdmin = currentUser.role === 'Admin';
+    // Records list, invoices, approvals and users are Admin-only. The booking
+    // calendar (with its availability chart) stays visible to every member so
+    // they can check dates/venues before submitting a booking.
+    $('tabListBtn').style.display = isAdmin ? 'inline-block' : 'none';
+    $('tabInvoiceBtn').style.display = isAdmin ? 'inline-block' : 'none';
+    $('tabCalendarBtn').style.display = 'inline-block';
+    $('tabApprovalsBtn').style.display = isAdmin ? 'inline-block' : 'none';
+    $('tabUsersBtn').style.display = isAdmin ? 'inline-block' : 'none';
+    $('tabVenuesBtn').style.display = isAdmin ? 'inline-block' : 'none';
+    $('tabDecorBtn').style.display = isAdmin ? 'inline-block' : 'none';
+    $('dbCount').style.display = isAdmin ? 'block' : 'none';
+  }
+
+  async function enterPortal(user){
+    currentUser = user;
+    await persistSession(user);
+    updateUserBadge();
+    $('loginOverlay').style.display = 'none';
+    await clearForm();
+    await refreshRegistry();
+    if(currentUser.role === 'Admin') await refreshApprovals();
+  }
+
+  function wireLoginForm(){
+    $('loginNote').textContent = HAS_CLOUD_DB
+      ? "Note: this portal's records and login list are shared with everyone who has access to this link."
+      : 'Running in local browser mode: data and logins are saved only on this device/browser, not shared with others.';
+
+    $('showRegister').addEventListener('click', (e) => {
+      e.preventDefault();
+      $('loginForm').style.display = 'none';
+      $('registerForm').style.display = 'block';
+      $('registerSubmitted').style.display = 'none';
+      $('loginError').textContent = '';
+    });
+    $('showLogin').addEventListener('click', (e) => {
+      e.preventDefault();
+      $('registerForm').style.display = 'none';
+      $('registerSubmitted').style.display = 'none';
+      $('loginForm').style.display = 'block';
+      $('loginError').textContent = '';
+    });
+    $('showLogin2').addEventListener('click', (e) => {
+      e.preventDefault();
+      $('registerSubmitted').style.display = 'none';
+      $('loginForm').style.display = 'block';
+      $('loginError').textContent = '';
+    });
+    $('loginBtn').addEventListener('click', async () => {
+      const username = $('li_user').value.trim();
+      const password = $('li_pass').value;
+      $('loginError').textContent = '';
+      if(!username || !password){ $('loginError').textContent = 'Enter your username and password.'; return; }
+      const user = await tryLogin(username, password);
+      if(!user){
+        const pending = await getPending();
+        if(pending[username]){
+          $('loginError').textContent = 'Your account is still awaiting Admin approval.';
+        }else{
+          $('loginError').textContent = 'Incorrect username or password.';
+        }
+        return;
+      }
+      if(user.blocked){
+        $('loginError').textContent = 'This account has been blocked by the Admin. Contact the office for help.';
+        return;
+      }
+      await enterPortal(user);
+    });
+    $('registerBtn').addEventListener('click', async () => {
+      const name = $('rg_name').value.trim();
+      const username = $('rg_user').value.trim();
+      const password = $('rg_pass').value;
+      $('loginError').textContent = '';
+      const result = await requestVendorAccount(username, password, name);
+      if(result.error){ $('loginError').textContent = result.error; return; }
+      $('registerForm').style.display = 'none';
+      $('registerSubmitted').style.display = 'block';
+      $('rg_name').value = ''; $('rg_user').value = ''; $('rg_pass').value = '';
+    });
+  }
+
+  // ---------- helpers ----------
+  function getFormData(){
+    const data = {};
+    FIELD_IDS.forEach(id => { const el = $(id); if(el) data[id] = el.value; });
+    return data;
+  }
+  function setFormData(data){
+    FIELD_IDS.forEach(id => { const el = $(id); if(el) el.value = data[id] !== undefined ? data[id] : ''; });
+    toggleCheque();
+  }
+  async function clearForm(){
+    await populateVenueSelect();
+    setFormData({});
+    $('f_place').value = 'Karachi';
+    $('f_agentName').value = currentUser ? (currentUser.name || currentUser.username) : '';
+    await renderDecorChecklist();
+    currentId = null;
+    recordIsExisting = false;
+    currentRecordMeta = null;
+    setFormReadOnly(false);
+    updateIdBadges('Assigning ID…');
+    setStatus('');
+    const id = await nextUniqueId();
+    currentId = id;
+    updateIdBadges();
+    updateCreatorInfo();
+    setStatus('Assigned new unique ID ' + id);
+  }
+  function formatDateTime(iso){
+    const d = iso ? new Date(iso) : new Date();
+    return d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) +
+      ', ' + d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
+  }
+  function updateCreatorInfo(){
+    const el = $('creatorInfo');
+    if(!el) return;
+    if(recordIsExisting && currentRecordMeta){
+      const loginId = currentRecordMeta._createdBy || 'unknown';
+      const who = currentRecordMeta._createdByName || loginId;
+      const when = currentRecordMeta._savedAt ? formatDateTime(currentRecordMeta._savedAt) : '—';
+      el.innerHTML = 'Login ID: <strong>' + escapeHtml(loginId) + '</strong> — ' + escapeHtml(who) +
+        ' &nbsp;|&nbsp; Booking Date &amp; Time: <strong>' + escapeHtml(when) + '</strong>';
+    } else if(currentUser){
+      el.innerHTML = 'Login ID: <strong>' + escapeHtml(currentUser.username) + '</strong> — ' +
+        escapeHtml(currentUser.name || currentUser.username) +
+        ' &nbsp;|&nbsp; Creating now: <strong>' + escapeHtml(formatDateTime()) + '</strong>';
+    } else {
+      el.textContent = '';
+    }
+  }
+  function setFormReadOnly(readOnly){
+    FIELD_IDS.forEach(id => { const el = $(id); if(el) el.disabled = readOnly; });
+    $('saveNewBtn').style.display = readOnly ? 'none' : 'inline-block';
+    $('readOnlyBanner').style.display = readOnly ? 'block' : 'none';
+  }
+  function updateIdBadges(pending){
+    $('recIdDisplay').textContent = pending ? pending : (currentId ? ('ID: ' + currentId) : 'ID: —');
+    $('navIdBox').textContent = pending ? '…' : (currentId ? currentId : '—');
+    if(!pending){
+      flashId($('recIdDisplay'));
+      flashId($('navIdBox'));
+    }
+  }
+  function flashId(el){
+    el.classList.remove('id-flash');
+    // force reflow so the animation can retrigger even if the class was just removed
+    void el.offsetWidth;
+    el.classList.add('id-flash');
+    el.addEventListener('animationend', () => el.classList.remove('id-flash'), { once: true });
+  }
+  function setStatus(msg){
+    $('statusMsg').textContent = msg;
+    if(msg){ setTimeout(()=>{ if($('statusMsg').textContent===msg) $('statusMsg').textContent=''; }, 3500); }
+  }
+  function toggleCheque(){
+    $('chequeWrap').style.display = ($('f_payMode').value === 'Cheque') ? 'flex' : 'none';
+    const isBank = $('f_payMode').value === 'Bank Transfer';
+    $('bankWrap').style.display = isBank ? 'flex' : 'none';
+    $('bankOtherWrap').style.display = (isBank && $('f_bankName').value === 'Other') ? 'flex' : 'none';
+  }
+  $('f_bankName').addEventListener('change', toggleCheque);
+  function computeBalance(){
+    const total = parseFloat($('f_totalCost').value) || 0;
+    const adv = parseFloat($('f_advance').value) || 0;
+    $('f_balance').value = Math.max(total - adv, 0);
+  }
+  function computeDay(){
+    const v = $('f_eventDate').value;
+    if(!v){ $('f_eventDay').value=''; return; }
+    const d = new Date(v + 'T00:00:00');
+    $('f_eventDay').value = d.toLocaleDateString('en-US', { weekday: 'long' });
+  }
+  $('f_totalCost').addEventListener('input', computeBalance);
+  $('f_advance').addEventListener('input', computeBalance);
+  $('f_eventDate').addEventListener('change', computeDay);
+  $('f_payMode').addEventListener('change', toggleCheque);
+
+  // ---------- storage-backed unique ID (shared across the whole portal) ----------
+  async function nextUniqueId(){
+    const year = new Date().getFullYear();
+    const counterKey = 'sla:counter:' + year;
+    let seq = 1;
+    try{
+      const res = await dbGet(counterKey, true);
+      seq = (res && res.value) ? (parseInt(res.value, 10) + 1) : 1;
+    }catch(e){ seq = 1; }
+    await dbSet(counterKey, String(seq), true);
+    return 'SLA-' + year + '-' + String(seq).padStart(4, '0');
+  }
+
+  function venueLabelOf(d){
+    return d.f_venue === 'Other' ? (d.f_venueOther || 'Other') : d.f_venue;
+  }
+  function venueLocationOf(d){
+    return d.f_venueLocation || '';
+  }
+  function venueDisplayOf(d){
+    const name = venueLabelOf(d) || 'Venue TBC';
+    const loc = venueLocationOf(d);
+    return loc ? (name + ' — ' + loc) : name;
+  }
+
+  async function getAllRecordsRaw(){
+    const res = await dbList('sla:record:', true);
+    const keys = (res && res.keys) || [];
+    const arr = [];
+    for(const k of keys){
+      try{
+        const r = await dbGet(k, true);
+        if(r && r.value) arr.push(JSON.parse(r.value));
+      }catch(e){ /* skip unreadable */ }
+    }
+    return arr;
+  }
+
+  // A date+venue combination is considered taken by any booking that hasn't
+  // been rejected — this is what prevents two SLAs landing on the same
+  // venue/date and is checked before every save, for every role.
+  async function isSlotTaken(date, venueLabel, excludeId){
+    if(!date || !venueLabel) return false;
+    const all = await getAllRecordsRaw();
+    return all.some(r => r._id !== excludeId && r.f_eventDate === date && venueLabelOf(r) === venueLabel && r._status !== 'Rejected');
+  }
+
+  async function saveRecord(){
+    if(recordIsExisting && (!currentUser || currentUser.role !== 'Admin')){
+      setStatus('Only an Admin can edit an existing record.');
+      return;
+    }
+    const data = getFormData();
+    if(!data.f_clientName && !data.f_firm){
+      setStatus('Add at least a client or vendor name before saving.');
+      return;
+    }
+    let id = currentId || await nextUniqueId();
+
+    const venueLabel = venueLabelOf(data);
+    if(data.f_eventDate && venueLabel){
+      const taken = await isSlotTaken(data.f_eventDate, venueLabel, id);
+      if(taken){
+        setStatus('That date & venue is already booked elsewhere — pick another date or venue to avoid a double booking.');
+        return;
+      }
+    }
+
+    data._id = id;
+    data._savedAt = new Date().toISOString();
+    // Preserve the original creator and approval status on an admin edit;
+    // Every single booking requires explicit Admin approval — including ones
+    // the Admin creates — so a fresh booking always starts Pending.
+    const meta = (recordIsExisting && currentRecordMeta) ? currentRecordMeta : null;
+    data._createdBy = meta ? meta._createdBy : (currentUser ? currentUser.username : 'unknown');
+    data._createdByName = meta ? meta._createdByName : (currentUser ? (currentUser.name || currentUser.username) : 'Unknown');
+    data._status = meta && meta._status ? meta._status : 'Pending Approval';
+
+    try{
+      const result = await dbSet('sla:record:' + id, JSON.stringify(data), true);
+      if(!result){ setStatus('Save failed — please try again.'); return; }
+      currentId = id;
+      recordIsExisting = true;
+      currentRecordMeta = { _createdBy: data._createdBy, _createdByName: data._createdByName, _status: data._status, _savedAt: data._savedAt };
+      updateIdBadges();
+      updateCreatorInfo();
+      setStatus('Saved to database as ' + id + (data._status === 'Pending Approval' ? ' — awaiting Admin approval' : ''));
+      await refreshRegistry();
+      // Auto-create the next blank form with its own fresh, dynamically
+      // generated unique ID so multiple SLAs can be entered back to back.
+      setTimeout(() => { clearForm(); }, 650);
+    }catch(e){
+      setStatus('Storage error while saving.');
+    }
+  }
+
+  function canAccess(record){
+    if(!currentUser) return false;
+    if(currentUser.role === 'Admin') return true;
+    return record && record._createdBy === currentUser.username;
+  }
+  function canDelete(){
+    return currentUser && currentUser.role === 'Admin';
+  }
+
+  async function loadRecord(id){
+    try{
+      const res = await dbGet('sla:record:' + id, true);
+      if(res && res.value){
+        const data = JSON.parse(res.value);
+        if(!canAccess(data)){ setStatus('You do not have access to that record.'); return; }
+        await populateVenueSelect();
+        ensureVenueOptionExists(data.f_venue);
+        setFormData(data);
+        currentId = id;
+        recordIsExisting = true;
+        currentRecordMeta = { _createdBy: data._createdBy, _createdByName: data._createdByName, _status: data._status, _savedAt: data._savedAt };
+        setFormReadOnly(!(currentUser && currentUser.role === 'Admin'));
+        await renderDecorChecklist();
+        updateIdBadges();
+        updateCreatorInfo();
+        computeBalance();
+        showView('form');
+        setStatus('Loaded ' + id);
+      }
+    }catch(e){
+      setStatus('Could not load record ' + id);
+    }
+  }
+
+  async function loadRecordSilently(id){
+    try{
+      const res = await dbGet('sla:record:' + id, true);
+      if(res && res.value){
+        const data = JSON.parse(res.value);
+        if(!canAccess(data)) return;
+        await populateVenueSelect();
+        ensureVenueOptionExists(data.f_venue);
+        setFormData(data);
+        currentId = id;
+        recordIsExisting = true;
+        currentRecordMeta = { _createdBy: data._createdBy, _createdByName: data._createdByName, _status: data._status, _savedAt: data._savedAt };
+        await renderDecorChecklist();
+        updateIdBadges();
+        updateCreatorInfo();
+        computeBalance();
+      }
+    }catch(e){ /* ignore, invoice will render from whatever is currently in the form */ }
+  }
+
+  async function deleteRecord(id){
+    if(!canDelete()){ setStatus('Only an Admin can delete records.'); return; }
+    if(!confirm('Delete record ' + id + '? This cannot be undone.')) return;
+    try{
+      await dbDelete('sla:record:' + id, true);
+      if(currentId === id) clearForm();
+      setStatus('Deleted ' + id);
+      await refreshRegistry();
+    }catch(e){
+      setStatus('Could not delete ' + id);
+    }
+  }
+
+  async function refreshRegistry(){
+    const body = $('registryBody');
+    body.innerHTML = '';
+    let keys = [];
+    try{
+      const res = await dbList('sla:record:', true);
+      keys = (res && res.keys) ? res.keys : [];
+    }catch(e){ keys = []; }
+
+    const allRecords = [];
+    for(const k of keys){
+      try{
+        const res = await dbGet(k, true);
+        if(res && res.value) allRecords.push(JSON.parse(res.value));
+      }catch(e){ /* skip unreadable */ }
+    }
+
+    // Vendors only ever see their own submissions; Admin sees everything.
+    const visible = currentUser && currentUser.role === 'Admin'
+      ? allRecords
+      : allRecords.filter(r => currentUser && r._createdBy === currentUser.username);
+
+    updateDbCount(visible.length, allRecords.length);
+
+    if(visible.length === 0){
+      $('emptyNote').style.display = 'block';
+      return;
+    }
+    $('emptyNote').style.display = 'none';
+
+    visible.sort((a,b) => (a._id < b._id ? 1 : -1));
+
+    const q = ($('searchBox').value || '').toLowerCase();
+    visible.forEach(r => {
+      const haystack = [r._id, r.f_clientName, r.f_firm, r.f_venue, r._createdByName].join(' ').toLowerCase();
+      if(q && !haystack.includes(q)) return;
+      const isAdmin = currentUser && currentUser.role === 'Admin';
+      const status = r._status || 'Pending Approval';
+      const statusClass = status === 'Approved' ? 'status-approved' : (status === 'Rejected' ? 'status-rejected' : 'status-pending');
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="id-cell">' + escapeHtml(r._id || '') + '</td>' +
+        '<td>' + escapeHtml(r.f_clientName || '—') + '</td>' +
+        '<td>' + escapeHtml(r.f_firm || '—') + '</td>' +
+        '<td>' + escapeHtml(r.f_eventDate || '—') + '</td>' +
+        '<td>' + escapeHtml((r.f_venue === 'Other' ? r.f_venueOther : r.f_venue) || '—') + '</td>' +
+        '<td>' + (r.f_totalCost ? ('Rs. ' + Number(r.f_totalCost).toLocaleString()) : '—') + '</td>' +
+        '<td><span class="status-badge ' + statusClass + '">' + escapeHtml(status) + '</span></td>' +
+        '<td>' + escapeHtml(r._createdByName || '—') + '</td>' +
+        '<td><button class="rowbtn" data-act="open" data-id="' + r._id + '">' + (isAdmin ? 'Open' : 'View') + '</button>' +
+        '<button class="rowbtn" data-act="inv" data-id="' + r._id + '">Invoice</button>' +
+        (isAdmin ? '<button class="rowbtn del" data-act="del" data-id="' + r._id + '">Delete</button>' : '') +
+        '</td>';
+      body.appendChild(tr);
+    });
+  }
+
+  function escapeHtml(str){
+    return String(str).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+  }
+  function updateDbCount(visibleN, totalN){
+    if(currentUser && currentUser.role === 'Admin'){
+      $('dbCount').textContent = 'Database: ' + totalN + (totalN === 1 ? ' record' : ' records');
+    } else {
+      $('dbCount').textContent = 'My records: ' + visibleN + ' · Portal total: ' + totalN;
+    }
+  }
+
+  // ---------- customer invoice ----------
+  function numberToWords(num){
+    num = Math.round(Number(num) || 0);
+    if(num === 0) return 'Zero';
+    const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten',
+      'Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
+    const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+    function twoDigits(n){
+      if(n < 20) return ones[n];
+      return tens[Math.floor(n/10)] + (n%10 ? ' ' + ones[n%10] : '');
+    }
+    function threeDigits(n){
+      let s = '';
+      if(n >= 100){ s += ones[Math.floor(n/100)] + ' Hundred'; n %= 100; if(n) s += ' '; }
+      if(n) s += twoDigits(n);
+      return s;
+    }
+    // Pakistani / Indian grouping: crore, lakh, thousand, hundred
+    const crore = Math.floor(num / 10000000); num %= 10000000;
+    const lakh = Math.floor(num / 100000); num %= 100000;
+    const thousand = Math.floor(num / 1000); num %= 1000;
+    const rest = num;
+    let parts = [];
+    if(crore) parts.push(threeDigits(crore) + ' Crore');
+    if(lakh) parts.push(threeDigits(lakh) + ' Lakh');
+    if(thousand) parts.push(threeDigits(thousand) + ' Thousand');
+    if(rest) parts.push(threeDigits(rest));
+    return parts.join(' ');
+  }
+
+  function renderInvoice(){
+    const d = getFormData();
+    const invoiceNo = (currentId || 'SLA-DRAFT').replace('SLA-', 'INV-');
+    const today = new Date().toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+
+    const eventType = d.f_eventType === 'Other' ? (d.f_eventTypeOther || 'Other') : d.f_eventType;
+    const venue = d.f_venue === 'Other' ? (d.f_venueOther || 'Other') : d.f_venue;
+    const menu = d.f_menuType === 'Other' ? (d.f_menuTypeOther || 'Other') : d.f_menuType;
+
+    const total = parseFloat(d.f_totalCost) || 0;
+    const advance = parseFloat(d.f_advance) || 0;
+    const balance = Math.max(total - advance, 0);
+
+    const rs = (n) => 'Rs. ' + Number(n || 0).toLocaleString('en-PK');
+
+    const html = `
+      <div class="inv-head">
+        <h2>CUSTOMER INVOICE</h2>
+        <div class="inv-meta">
+          <div><span>Invoice No.</span><strong>${escapeHtml(invoiceNo)}</strong></div>
+          <div><span>Invoice Date</span><strong>${escapeHtml(today)}</strong></div>
+          <div><span>Linked SLA ID</span><strong>${escapeHtml(currentId || '—')}</strong></div>
+        </div>
+      </div>
+
+      <div class="inv-parties">
+        <div class="inv-box">
+          <h4>Billed To</h4>
+          <p><strong>${escapeHtml(d.f_clientName || '—')}</strong></p>
+          ${d.f_clientRel ? `<p>${escapeHtml(d.f_clientRel)}</p>` : ''}
+          ${d.f_cnic ? `<p>CNIC: ${escapeHtml(d.f_cnic)}</p>` : ''}
+          ${d.f_clientContact ? `<p>Contact: ${escapeHtml(d.f_clientContact)}</p>` : ''}
+          ${d.f_address ? `<p>${escapeHtml(d.f_address)}</p>` : ''}
+        </div>
+        <div class="inv-box">
+          <h4>Event Reference</h4>
+          <p>Type: ${escapeHtml(eventType || '—')}</p>
+          <p>Date: ${escapeHtml(d.f_eventDate || '—')} ${d.f_eventDay ? '(' + escapeHtml(d.f_eventDay) + ')' : ''}</p>
+          <p>Venue: ${escapeHtml(venue || '—')}</p>
+          <p>Guests: ${escapeHtml(d.f_guests || '—')}</p>
+        </div>
+      </div>
+
+      <table class="inv-table">
+        <thead>
+          <tr><th>Description</th><th style="text-align:right;">Amount</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              Catering, decoration &amp; event management services — ${escapeHtml(eventType || 'event')}
+              ${menu ? ' (' + escapeHtml(menu) + ' menu)' : ''} at ${escapeHtml(venue || 'the venue')}
+              ${d.f_eventDate ? ' on ' + escapeHtml(d.f_eventDate) : ''}.
+              ${d.f_special ? '<br><span class="inv-note">Special commitments: ' + escapeHtml(d.f_special) + '</span>' : ''}
+            </td>
+            <td style="text-align:right;">${rs(total)}</td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr><td>Total Package Cost</td><td style="text-align:right;">${rs(total)}</td></tr>
+          <tr><td>Advance Received${d.f_advanceDate ? ' (' + escapeHtml(d.f_advanceDate) + ')' : ''}</td><td style="text-align:right;">- ${rs(advance)}</td></tr>
+          <tr class="inv-balance"><td>Balance Due${d.f_dueOn ? ' — ' + escapeHtml(d.f_dueOn) : ''}</td><td style="text-align:right;">${rs(balance)}</td></tr>
+        </tfoot>
+      </table>
+
+      <p class="inv-words">Balance Due in Words: <em>${escapeHtml(numberToWords(balance))} Rupees Only</em></p>
+      <p class="inv-words">Mode of Payment: ${escapeHtml(d.f_payMode || '—')}${d.f_payMode === 'Cheque' && d.f_chequeNo ? ' (Cheque No. ' + escapeHtml(d.f_chequeNo) + ')' : ''}${d.f_payMode === 'Bank Transfer' ? ' (' + escapeHtml(d.f_bankName === 'Other' ? (d.f_bankNameOther || 'Bank') : (d.f_bankName || 'Bank')) + (d.f_bankAccNo ? ' — A/C ' + escapeHtml(d.f_bankAccNo) : '') + ')' : ''}</p>
+      <p class="inv-words">Booking Agent: ${escapeHtml(d.f_agentName || '—')}</p>
+
+      <div class="inv-sign">
+        <div><div class="inv-line"></div><span>Authorized Signatory — ${d.f_firm ? escapeHtml(d.f_firm) : 'Booking Organizer'}</span></div>
+        <div><div class="inv-line"></div><span>Client Acknowledgement — ${escapeHtml(d.f_clientName || '')}</span></div>
+      </div>
+
+      <div class="inv-terms">
+        <h4>Terms &amp; Conditions</h4>
+        <ol>
+          <li>50% of the payment for the venue would be made in advance at the time of booking.</li>
+          <li>The remaining balance must be paid 20 days before the event date.</li>
+          <li>In case of non-payment, Management reserves the right to not provide its services.</li>
+          <li>Token money is NON-REFUNDABLE. Token money will not be returned in case of cancellation after booking.</li>
+          <li>Management reserves the right to decline any additional requests that were not agreed upon prior to the booking date.</li>
+          <li>In case of breakage of assets by any individual (except the management team), the client will be liable to pay in full for the damage.</li>
+          <li>Management is not liable to provide its services after the end of the time frame agreed upon for the event.</li>
+          <li>Guests are responsible for their belongings; the management will not be responsible for any loss.</li>
+          <li>The function shall wind up in accordance with the prescribed closing time, i.e., 2400 hours, or as per any orders issued by the Government of Sindh.</li>
+          <li>Any government approval or NOC required from any department shall be the sole responsibility of the party.</li>
+          <li>No fireworks and firing will be allowed during the function.</li>
+          <li>All payments must be made 100% ONLINE.</li>
+          <li>Cancellation charges may apply as per the terms of the agreement, and all products are non-refundable.</li>
+          <li>The Company shall not be held liable for any delays or non-performance of its obligations due to circumstances beyond its control (e.g., natural disasters, strikes, governmental actions).</li>
+        </ol>
+        <p class="inv-terms-note"><strong>NOTE — Beverage Policy:</strong> All drinks are provided by us, including cold drinks (soft drinks, sodas) and water (bottled or filtered). Outside drinks are not allowed.</p>
+      </div>
+
+      <p class="inv-footer">Thank you for choosing Booking Organizer. This invoice is issued against Service Level Agreement ${escapeHtml(currentId || '')} on file with Booking Organizer.</p>
+    `;
+    $('invoiceSheet').innerHTML = html;
+  }
+
+  $('registryBody').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button');
+    if(!btn) return;
+    const id = btn.getAttribute('data-id');
+    if(btn.getAttribute('data-act') === 'open') loadRecord(id);
+    if(btn.getAttribute('data-act') === 'del') deleteRecord(id);
+    if(btn.getAttribute('data-act') === 'inv'){
+      await loadRecordSilently(id);
+      showView('invoice');
+    }
+  });
+  $('searchBox').addEventListener('input', refreshRegistry);
+
+  // ---------- view switching ----------
+  const ADMIN_ONLY_VIEWS = ['list', 'invoice', 'approvals', 'users', 'venues', 'decor'];
+  function showView(name){
+    if(ADMIN_ONLY_VIEWS.includes(name) && !(currentUser && currentUser.role === 'Admin')){
+      name = 'form';
+    }
+    $('viewForm').style.display = name === 'form' ? 'block' : 'none';
+    $('viewList').style.display = name === 'list' ? 'block' : 'none';
+    $('viewInvoice').style.display = name === 'invoice' ? 'block' : 'none';
+    $('viewApprovals').style.display = name === 'approvals' ? 'block' : 'none';
+    $('viewUsers').style.display = name === 'users' ? 'block' : 'none';
+    $('viewVenues').style.display = name === 'venues' ? 'block' : 'none';
+    $('viewDecor').style.display = name === 'decor' ? 'block' : 'none';
+    $('viewCalendar').style.display = name === 'calendar' ? 'block' : 'none';
+    $('tabFormBtn').classList.toggle('active', name === 'form');
+    $('tabListBtn').classList.toggle('active', name === 'list');
+    $('tabInvoiceBtn').classList.toggle('active', name === 'invoice');
+    $('tabApprovalsBtn').classList.toggle('active', name === 'approvals');
+    $('tabUsersBtn').classList.toggle('active', name === 'users');
+    $('tabVenuesBtn').classList.toggle('active', name === 'venues');
+    $('tabDecorBtn').classList.toggle('active', name === 'decor');
+    $('tabCalendarBtn').classList.toggle('active', name === 'calendar');
+    $('saveNewBtn').style.display = name === 'form' ? 'inline-block' : 'none';
+    $('clearBtn').style.display = name === 'form' ? 'inline-block' : 'none';
+    if(name === 'list') refreshRegistry();
+    if(name === 'invoice') renderInvoice();
+    if(name === 'approvals') refreshApprovals();
+    if(name === 'users') refreshUsers();
+    if(name === 'venues') refreshVenues();
+    if(name === 'decor') refreshDecorItems();
+    if(name === 'calendar') renderCalendar();
+  }
+  $('tabFormBtn').addEventListener('click', () => showView('form'));
+  $('tabListBtn').addEventListener('click', () => showView('list'));
+  $('tabInvoiceBtn').addEventListener('click', () => showView('invoice'));
+  $('tabApprovalsBtn').addEventListener('click', () => showView('approvals'));
+  $('tabUsersBtn').addEventListener('click', () => showView('users'));
+  $('tabVenuesBtn').addEventListener('click', () => showView('venues'));
+  $('tabDecorBtn').addEventListener('click', () => showView('decor'));
+  $('tabCalendarBtn').addEventListener('click', () => showView('calendar'));
+  $('newFromListBtn').addEventListener('click', async () => { await clearForm(); showView('form'); });
+
+  // ---------- admin: users & login-ID stats ----------
+  async function refreshUsers(){
+    if(!currentUser || currentUser.role !== 'Admin') return;
+    const users = await seedAdminIfNeeded();
+    const usernames = Object.keys(users);
+    $('usersStat').textContent = 'Total login IDs created: ' + usernames.length +
+      ' (' + usernames.filter(u => users[u].role === 'Admin').length + ' Admin, ' +
+      usernames.filter(u => users[u].role === 'Vendor').length + ' Vendor)';
+
+    // Total booking data by individual login agent.
+    const allRecords = await getAllRecordsRaw();
+    const bookingCounts = {};
+    allRecords.forEach(r => {
+      const who = r._createdBy || 'unknown';
+      if(!bookingCounts[who]) bookingCounts[who] = { total: 0, approved: 0, pending: 0, rejected: 0 };
+      bookingCounts[who].total++;
+      const st = r._status || 'Pending Approval';
+      if(st === 'Approved') bookingCounts[who].approved++;
+      else if(st === 'Rejected') bookingCounts[who].rejected++;
+      else bookingCounts[who].pending++;
+    });
+
+    const body = $('usersBody');
+    body.innerHTML = '';
+    usernames.forEach(u => {
+      const info = users[u];
+      const c = bookingCounts[u] || { total: 0, approved: 0, pending: 0, rejected: 0 };
+      const blocked = !!info.blocked;
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="id-cell">' + escapeHtml(u) + '</td>' +
+        '<td class="id-cell">' + escapeHtml(info.password || '—') + '</td>' +
+        '<td>' + escapeHtml(info.name || '—') + '</td>' +
+        '<td>' + escapeHtml(info.role || '—') + '</td>' +
+        '<td>' + c.total + ' <span style="color:#8A917F;">(A:' + c.approved + ' P:' + c.pending + ' R:' + c.rejected + ')</span></td>' +
+        '<td><span class="status-badge ' + (blocked ? 'status-rejected' : 'status-approved') + '">' + (blocked ? 'Blocked' : 'Active') + '</span></td>' +
+        '<td>' +
+          '<button class="rowbtn" data-act="reset" data-user="' + escapeHtml(u) + '">Reset Password</button>' +
+          (info.role !== 'Admin'
+            ? '<button class="rowbtn ' + (blocked ? '' : 'del') + '" data-act="toggleblock" data-user="' + escapeHtml(u) + '">' + (blocked ? 'Unblock' : 'Block') + '</button>'
+            : '') +
+        '</td>';
+      body.appendChild(tr);
+    });
+  }
+  $('usersBody').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button');
+    if(!btn) return;
+    const username = btn.getAttribute('data-user');
+    const act = btn.getAttribute('data-act');
+    if(act === 'reset'){
+      const newPass = prompt('Set a new password for "' + username + '":');
+      if(newPass === null) return;
+      if(!newPass.trim()){ setStatus('Password cannot be empty.'); return; }
+      const users = await getUsers();
+      if(!users || !users[username]) return;
+      users[username].password = newPass.trim();
+      await saveUsers(users);
+      setStatus('Password updated for ' + username + '.');
+    }
+    if(act === 'toggleblock'){
+      const users = await getUsers();
+      if(!users || !users[username]) return;
+      users[username].blocked = !users[username].blocked;
+      await saveUsers(users);
+      setStatus((users[username].blocked ? 'Blocked ' : 'Unblocked ') + username + '.');
+    }
+    await refreshUsers();
+  });
+
+  // ---------- admin: venues (name + location) management ----------
+  async function refreshVenues(){
+    const venues = await seedVenuesIfNeeded();
+    const body = $('venuesBody');
+    body.innerHTML = '';
+    $('venuesEmptyNote').style.display = venues.length ? 'none' : 'block';
+    venues.forEach((v, idx) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + escapeHtml(v.name) + '</td>' +
+        '<td>' + escapeHtml(v.location || '—') + '</td>' +
+        '<td>' +
+          '<button class="rowbtn" data-act="editvenue" data-idx="' + idx + '">Edit</button>' +
+          '<button class="rowbtn del" data-act="delvenue" data-idx="' + idx + '">Delete</button>' +
+        '</td>';
+      body.appendChild(tr);
+    });
+  }
+  $('addVenueBtn').addEventListener('click', async () => {
+    const name = $('newVenueName').value.trim();
+    const location = $('newVenueLocation').value.trim();
+    if(!name){ setStatus('Enter a venue name before adding.'); return; }
+    const venues = await seedVenuesIfNeeded();
+    if(venues.some(v => v.name.toLowerCase() === name.toLowerCase())){
+      setStatus('A venue with that name already exists.');
+      return;
+    }
+    venues.push({ name, location });
+    await saveVenues(venues);
+    $('newVenueName').value = '';
+    $('newVenueLocation').value = '';
+    await refreshVenues();
+    await populateVenueSelect();
+    setStatus('Added venue ' + name + '.');
+  });
+  $('venuesBody').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button');
+    if(!btn) return;
+    const idx = parseInt(btn.getAttribute('data-idx'), 10);
+    const act = btn.getAttribute('data-act');
+    const venues = await seedVenuesIfNeeded();
+    if(!venues[idx]) return;
+    if(act === 'editvenue'){
+      const newName = prompt('Venue name:', venues[idx].name);
+      if(newName === null) return;
+      if(!newName.trim()){ setStatus('Venue name cannot be empty.'); return; }
+      const newLoc = prompt('Location:', venues[idx].location || '');
+      if(newLoc === null) return;
+      venues[idx] = { name: newName.trim(), location: newLoc.trim() };
+      await saveVenues(venues);
+      await refreshVenues();
+      await populateVenueSelect();
+      setStatus('Updated venue ' + newName.trim() + '.');
+    }
+    if(act === 'delvenue'){
+      if(!confirm('Remove venue "' + venues[idx].name + '"? Past bookings that used it will still show it correctly.')) return;
+      const removed = venues[idx].name;
+      venues.splice(idx, 1);
+      await saveVenues(venues);
+      await refreshVenues();
+      await populateVenueSelect();
+      setStatus('Removed venue ' + removed + '.');
+    }
+  });
+
+  // ---------- admin: decoration items (checklist) management ----------
+  async function refreshDecorItems(){
+    const items = await seedDecorItemsIfNeeded();
+    const body = $('decorBody');
+    body.innerHTML = '';
+    $('decorEmptyNote').style.display = items.length ? 'none' : 'block';
+    items.forEach((name, idx) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + escapeHtml(name) + '</td>' +
+        '<td>' +
+          '<button class="rowbtn" data-act="editdecor" data-idx="' + idx + '">Edit</button>' +
+          '<button class="rowbtn del" data-act="deldecor" data-idx="' + idx + '">Delete</button>' +
+        '</td>';
+      body.appendChild(tr);
+    });
+  }
+  $('addDecorBtn').addEventListener('click', async () => {
+    const name = $('newDecorName').value.trim();
+    if(!name){ setStatus('Enter a decoration item name before adding.'); return; }
+    const items = await seedDecorItemsIfNeeded();
+    if(items.some(v => v.toLowerCase() === name.toLowerCase())){
+      setStatus('That decoration item already exists.');
+      return;
+    }
+    items.push(name);
+    await saveDecorItems(items);
+    $('newDecorName').value = '';
+    await refreshDecorItems();
+    await renderDecorChecklist();
+    setStatus('Added decoration item ' + name + '.');
+  });
+  $('decorBody').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button');
+    if(!btn) return;
+    const idx = parseInt(btn.getAttribute('data-idx'), 10);
+    const act = btn.getAttribute('data-act');
+    const items = await seedDecorItemsIfNeeded();
+    if(items[idx] === undefined) return;
+    if(act === 'editdecor'){
+      const newName = prompt('Decoration item name:', items[idx]);
+      if(newName === null) return;
+      if(!newName.trim()){ setStatus('Decoration item name cannot be empty.'); return; }
+      items[idx] = newName.trim();
+      await saveDecorItems(items);
+      await refreshDecorItems();
+      await renderDecorChecklist();
+      setStatus('Updated decoration item.');
+    }
+    if(act === 'deldecor'){
+      if(!confirm('Remove decoration item "' + items[idx] + '"?')) return;
+      const removed = items[idx];
+      items.splice(idx, 1);
+      await saveDecorItems(items);
+      await refreshDecorItems();
+      await renderDecorChecklist();
+      setStatus('Removed decoration item ' + removed + '.');
+    }
+  });
+
+  // ---------- booking calendar (shared availability view for everyone) ----------
+  let calViewYear, calViewMonth; // 0-indexed month
+  function initCalendarCursor(){
+    const now = new Date();
+    calViewYear = now.getFullYear();
+    calViewMonth = now.getMonth();
+  }
+  async function renderCalendar(){
+    if(calViewYear === undefined) initCalendarCursor();
+    const all = await getAllRecordsRaw();
+    const bookings = all.filter(r => r.f_eventDate && r._status !== 'Rejected');
+
+    const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    $('calMonthLabel').textContent = monthNames[calViewMonth] + ' ' + calViewYear;
+
+    const firstDay = new Date(calViewYear, calViewMonth, 1);
+    const startWeekday = firstDay.getDay(); // 0 = Sunday
+    const daysInMonth = new Date(calViewYear, calViewMonth + 1, 0).getDate();
+
+    const grid = $('calGrid');
+    grid.innerHTML = '';
+    ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d => {
+      const el = document.createElement('div');
+      el.className = 'cal-dow';
+      el.textContent = d;
+      grid.appendChild(el);
+    });
+    for(let i = 0; i < startWeekday; i++){
+      const el = document.createElement('div');
+      el.className = 'cal-day blank';
+      grid.appendChild(el);
+    }
+    for(let day = 1; day <= daysInMonth; day++){
+      const iso = calViewYear + '-' + String(calViewMonth+1).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+      const dayBookings = bookings.filter(b => b.f_eventDate === iso);
+      const cell = document.createElement('div');
+      cell.className = 'cal-day' + (dayBookings.length ? ' has-booking' : '');
+      let dotsHtml = '';
+      let venuesHtml = '';
+      dayBookings.forEach(b => {
+        const statusCls = b._status === 'Approved' ? 'status-approved' : 'status-pending';
+        const dotCls = b._status === 'Approved' ? 'dot-approved' : 'dot-pending';
+        dotsHtml += '<span class="dot ' + dotCls + '"></span>';
+        const display = venueDisplayOf(b);
+        venuesHtml += '<span class="day-venue ' + statusCls + '" title="' + escapeHtml(display) + '">' +
+          escapeHtml(display) + '</span>';
+      });
+      cell.innerHTML = '<div class="day-num">' + day + '</div><div class="day-dots">' + dotsHtml + '</div>' +
+        (venuesHtml ? '<div class="day-venues">' + venuesHtml + '</div>' : '');
+      if(dayBookings.length){
+        cell.addEventListener('click', () => showCalDayDetails(iso, dayBookings, cell));
+      }
+      grid.appendChild(cell);
+    }
+
+    await renderAvailabilityChart(bookings, daysInMonth);
+  }
+
+  // Venue Availability This Month — driven by the Admin-managed venue list
+  // (name + location), so newly added or renamed venues show up automatically.
+  async function renderAvailabilityChart(monthBookings, daysInMonth){
+    const el = $('availabilityChart');
+    if(!el) return;
+    const venueList = await seedVenuesIfNeeded();
+    const locationByName = {};
+    venueList.forEach(v => { locationByName[v.name] = v.location || ''; });
+    // Count distinct booked dates per venue within the currently viewed month.
+    const counts = {};
+    const order = venueList.map(v => v.name);
+    order.forEach(v => counts[v] = new Set());
+    monthBookings.forEach(b => {
+      const v = venueLabelOf(b) || 'Other';
+      if(!counts[v]){ counts[v] = new Set(); order.push(v); }
+      counts[v].add(b.f_eventDate);
+    });
+    const venues = order.length ? order : venueList.map(v => v.name);
+    el.innerHTML = venues.map(v => {
+      const booked = counts[v] ? counts[v].size : 0;
+      const pct = daysInMonth ? Math.min(100, Math.round((booked / daysInMonth) * 100)) : 0;
+      const loc = locationByName[v];
+      const label = v + (loc ? ' (' + loc + ')' : '');
+      return '<div class="avail-row">' +
+        '<span class="avail-label" title="' + escapeHtml(label) + '">' + escapeHtml(label) + '</span>' +
+        '<span class="avail-bar-track"><span class="avail-bar-fill" style="width:' + pct + '%"></span></span>' +
+        '<span class="avail-count">' + booked + '/' + daysInMonth + '</span>' +
+        '</div>';
+    }).join('');
+  }
+  function showCalDayDetails(iso, dayBookings, cell){
+    document.querySelectorAll('.cal-day.selected').forEach(el => el.classList.remove('selected'));
+    cell.classList.add('selected');
+    const rows = dayBookings.map(b => {
+      const cls = b._status === 'Approved' ? 'status-approved' : 'status-pending';
+      return '<div class="cal-booking-row"><span>' + escapeHtml(venueDisplayOf(b)) +
+        (b.f_eventType ? ' — ' + escapeHtml(b.f_eventType) : '') + '</span>' +
+        '<span class="status-badge ' + cls + '">' + escapeHtml(b._status || 'Pending Approval') + '</span></div>';
+    }).join('');
+    $('calDayDetails').innerHTML = '<h4>Booked on ' + escapeHtml(iso) + '</h4>' + rows +
+      '<p class="cal-hint" style="margin-top:8px;">Choose a different date or venue in the form to avoid a double booking.</p>';
+  }
+  $('calPrev').addEventListener('click', () => {
+    if(calViewYear === undefined) initCalendarCursor();
+    calViewMonth--; if(calViewMonth < 0){ calViewMonth = 11; calViewYear--; }
+    renderCalendar();
+  });
+  $('calNext').addEventListener('click', () => {
+    if(calViewYear === undefined) initCalendarCursor();
+    calViewMonth++; if(calViewMonth > 11){ calViewMonth = 0; calViewYear++; }
+    renderCalendar();
+  });
+
+
+  async function refreshApprovals(){
+    if(!currentUser || currentUser.role !== 'Admin') return;
+
+    // --- pending vendor account requests ---
+    const pending = await getPending();
+    const usernames = Object.keys(pending);
+    const accBody = $('approvalsBody');
+    accBody.innerHTML = '';
+    $('approvalsEmptyNote').style.display = usernames.length === 0 ? 'block' : 'none';
+    usernames.forEach(u => {
+      const req = pending[u];
+      const when = req.requestedAt ? new Date(req.requestedAt).toLocaleString() : '—';
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="id-cell">' + escapeHtml(u) + '</td>' +
+        '<td>' + escapeHtml(req.name || '—') + '</td>' +
+        '<td>' + escapeHtml(when) + '</td>' +
+        '<td><button class="rowbtn" data-act="approve" data-user="' + escapeHtml(u) + '">Approve</button>' +
+        '<button class="rowbtn del" data-act="reject" data-user="' + escapeHtml(u) + '">Reject</button></td>';
+      accBody.appendChild(tr);
+    });
+
+    // --- pending bookings ---
+    const allRecords = await getAllRecordsRaw();
+    const pendingBookings = allRecords.filter(r => (r._status || 'Pending Approval') === 'Pending Approval');
+    const bkBody = $('bookingApprovalsBody');
+    bkBody.innerHTML = '';
+    $('bookingApprovalsEmptyNote').style.display = pendingBookings.length === 0 ? 'block' : 'none';
+    pendingBookings.sort((a,b) => (a._id < b._id ? 1 : -1));
+    pendingBookings.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="id-cell">' + escapeHtml(r._id || '') + '</td>' +
+        '<td>' + escapeHtml(r.f_clientName || '—') + '</td>' +
+        '<td>' + escapeHtml(r.f_eventDate || '—') + '</td>' +
+        '<td>' + escapeHtml(venueLabelOf(r) || '—') + '</td>' +
+        '<td>' + escapeHtml(r._createdByName || '—') + '</td>' +
+        '<td><button class="rowbtn" data-act="bk_approve" data-id="' + r._id + '">Approve</button>' +
+        '<button class="rowbtn" data-act="bk_view" data-id="' + r._id + '">View</button>' +
+        '<button class="rowbtn del" data-act="bk_reject" data-id="' + r._id + '">Reject</button></td>';
+      bkBody.appendChild(tr);
+    });
+
+    // update the tab label with a combined live pending count
+    const total = usernames.length + pendingBookings.length;
+    $('tabApprovalsBtn').textContent = 'Approvals' + (total ? ' (' + total + ')' : '');
+  }
+  $('approvalsBody').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button');
+    if(!btn) return;
+    const user = btn.getAttribute('data-user');
+    const act = btn.getAttribute('data-act');
+    if(act === 'approve'){ await approveVendor(user); setStatus('Approved ' + user); }
+    if(act === 'reject'){ await rejectVendor(user); setStatus('Rejected request from ' + user); }
+    await refreshApprovals();
+  });
+  $('bookingApprovalsBody').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button');
+    if(!btn) return;
+    const id = btn.getAttribute('data-id');
+    const act = btn.getAttribute('data-act');
+    if(act === 'bk_approve'){ await setBookingStatus(id, 'Approved'); setStatus('Approved booking ' + id); }
+    if(act === 'bk_reject'){ await setBookingStatus(id, 'Rejected'); setStatus('Rejected booking ' + id); }
+    if(act === 'bk_view'){ await loadRecordSilently(id); showView('form'); return; }
+    await refreshApprovals();
+  });
+  async function setBookingStatus(id, status){
+    try{
+      const res = await dbGet('sla:record:' + id, true);
+      if(!res || !res.value) return;
+      const data = JSON.parse(res.value);
+      data._status = status;
+      await dbSet('sla:record:' + id, JSON.stringify(data), true);
+      if(currentId === id) currentRecordMeta = { _createdBy: data._createdBy, _createdByName: data._createdByName, _status: data._status, _savedAt: data._savedAt };
+    }catch(e){ setStatus('Could not update booking status.'); }
+  }
+
+  $('saveNewBtn').addEventListener('click', () => saveRecord());
+  $('clearBtn').addEventListener('click', async () => {
+    if(confirm('Discard this form and start a fresh one with a new ID?')) await clearForm();
+  });
+  $('printBtn').addEventListener('click', () => window.print());
+
+  // ---------- init ----------
+  (async function init(){
+    wireLoginForm();
+    const session = await restoreSession();
+    if(session){
+      const users = await seedAdminIfNeeded();
+      const stillValid = users[session.username] && !users[session.username].blocked;
+      if(stillValid){
+        await enterPortal(session);
+      } else {
+        await clearSession();
+        $('loginOverlay').style.display = 'flex';
+        if(users[session.username] && users[session.username].blocked){
+          $('loginError').textContent = 'This account has been blocked by the Admin. Contact the office for help.';
+        }
+      }
+    } else {
+      $('loginOverlay').style.display = 'flex';
+    }
+  })();
+})();
+</script>
+
+</body>
+</html>

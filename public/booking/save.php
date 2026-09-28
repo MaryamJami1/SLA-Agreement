@@ -56,6 +56,7 @@ foreach (array_keys(booking_field_specs()) as $name) {
 $values['vendor_id'] = is_string($_POST['vendor_id'] ?? null) ? $_POST['vendor_id'] : ($booking['vendor_id'] ?? '');
 $values['venue_id'] = is_string($_POST['venue_id'] ?? null) && $_POST['venue_id'] !== 'other' ? $_POST['venue_id'] : '';
 $values['venue_other'] = ($_POST['venue_id'] ?? '') === 'other' ? (string) ($_POST['venue_other'] ?? '') : '';
+$values['slot_id'] = is_string($_POST['slot_id'] ?? null) ? $_POST['slot_id'] : '';
 $values['version'] = $version;
 $values['amend_reason'] = is_string($_POST['amend_reason'] ?? null) ? $_POST['amend_reason'] : '';
 $values['override_reason'] = is_string($_POST['override_reason'] ?? null) ? $_POST['override_reason'] : '';
@@ -71,7 +72,10 @@ foreach ($formLines as $key => $l) {
     $in = is_array($postedLines[$key] ?? null) ? $postedLines[$key] : [];
     $lineInput[$key] = [
         'selected' => isset($in['selected']),
-        'rate'     => is_string($in['rate'] ?? null) ? $in['rate'] : '',
+        // A vendor's rate box is read-only (not posted): show AO Mess's rate again.
+        'rate'     => $viewer['role'] === 'vendor' && $l['section'] === 'charge'
+            ? (string) ($l['rate'] ?? '')
+            : (is_string($in['rate'] ?? null) ? $in['rate'] : ''),
         'qty'      => is_string($in['qty'] ?? null) ? $in['qty'] : '',
         'notes'    => is_string($in['notes'] ?? null) ? $in['notes'] : '',
     ];

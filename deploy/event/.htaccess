@@ -1,0 +1,25 @@
+# AO Mess — goes in public_html/event/ when the app is served at https://<domain>/event
+# (see docs/DEPLOY.md, "Installing in a sub-folder"). The whole project sits in public_html/event/;
+# every request is passed to public/, so app/, config/, database/ and storage/ are never reachable.
+
+Options -Indexes
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /event/
+
+    # HTTPS
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+
+    # /event/<anything> is served from /event/public/<anything>
+    RewriteCond %{REQUEST_URI} !^/event/public/
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
+
+# If rewriting is ever unavailable, serve nothing rather than the project files.
+<IfModule !mod_rewrite.c>
+    Require all denied
+</IfModule>

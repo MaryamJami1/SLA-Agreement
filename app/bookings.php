@@ -7,6 +7,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/slots.php';
+
 const EVENT_TYPES    = ['Mehndi', 'Barat', 'Valima', 'Birthday', 'Corporate', 'Other'];
 const MENU_TYPES     = ['Buffet', 'Sitting Dinner', 'Hi-Tea', 'Other'];
 const STAGE_TYPES    = ['Full backdrop — fresh flowers', 'Artificial flowers', 'Fabric', 'Other'];
@@ -53,8 +55,27 @@ class BookingValidationError extends RuntimeException
 class BookingConflict extends RuntimeException {}
 
 /**
+ * Commercial terms and AO Mess's own records: field => value used when a vendor creates a booking.
+ *
+ * A vendor may describe the event and quote its per-head catering rate, but not set the fixed
+ * charges, the discount or what happens if it is cancelled, and may not write AO Mess's
+ * acknowledgement of receipt. On an existing booking these keep whatever the admin last saved.
+ * Charge line rates are protected the same way, in parse_booking_lines().
+ */
+const ADMIN_ONLY_FIELDS = [
+    'discount'      => '0.00',
+    'due_on'        => 'Event Day',
+    'refund_pct_30' => null,
+    'refund_pct_7'  => null,
+    'received_by'   => null,
+    'received_date' => null,
+    'received_time' => null,
+];
+
+/**
  * Scalar booking columns the form edits: name => [type, max length or options, label].
- * vendor_id and venue_id/venue_other are handled separately.
+ * vendor_id, venue_id/venue_other and the event slot are handled separately. start_time is only typed
+ * for "Other" venues; with a venue from the list it is the chosen slot's start.
  */
 function booking_field_specs(): array
 {
@@ -78,7 +99,8 @@ function booking_field_specs(): array
         'event_type_other'     => ['text', 100, 'Other event type'],
         'event_date'           => ['date', null, 'Date of event'],
         'alt_date'             => ['date', null, 'Alternate date'],
-        'setup_time'           => ['time', null, 'Setup ready by'],
+        // "Setup ready by" (setup_time) is no longer recorded. The column stays, holding what past
+        // bookings stored; nothing reads or writes it now.
         'start_time'           => ['time', null, 'Event start time'],
         'guests'               => ['count', null, 'Estimated guests'],
         'menu_type'            => ['select', MENU_TYPES, 'Menu type'],
@@ -96,12 +118,9 @@ function booking_field_specs(): array
         'floor_other'          => ['text', 150, 'Other floor covering'],
         'addl_decor'           => ['longtext', LONG_TEXT_MAX, 'Additional decor'],
         'decor_by'             => ['text', 150, 'Decor by'],
-        'sofas'                => ['count', null, 'Sofas'],
-        'chairs'               => ['count', null, 'Chairs'],
-        'tables_dining'        => ['count', null, 'Dining tables'],
-        'tables_buffet'        => ['count', null, 'Buffet tables'],
-        'waiters'              => ['count', null, 'Waiters'],
-        'chefs'                => ['count', null, 'Chefs'],
+        // Furniture & manpower (sofas, chairs, tables, waiters, chefs) is no longer recorded.
+        // The columns remain in the schema, holding whatever past bookings stored; nothing
+        // reads or writes them now, so an old booking's numbers are neither shown nor lost.
         'per_head_rate'        => ['money', null, 'Per-head rate'],
         'discount'             => ['money', null, 'Discount'],
         'due_on'               => ['select', DUE_ON_TYPES, 'Balance due on'],
@@ -182,7 +201,7 @@ function active_vendors(PDO $pdo): array
 /** Active venues, plus the booking's current venue if it has since been deactivated. */
 function venues_for_form(PDO $pdo, ?int $currentVenueId): array
 {
-    $st = $pdo->prepare('SELECT id, name, is_active FROM venues WHERE is_active = 1 OR id = ? ORDER BY sort_order, name');
+    $st = $pdo->prepare('SELECT id, name, location, is_active FROM venues WHERE is_active = 1 OR id = ? ORDER BY sort_order, name');
     $st->execute([$currentVenueId ?? 0]);
     return $st->fetchAll();
 }
@@ -264,9 +283,7 @@ function parse_booking_input(PDO $pdo, array $post, array $user, ?array $existin
     }
     $fields['agreement_place'] = $fields['agreement_place'] ?? 'Karachi';
     $fields['due_on'] = $fields['due_on'] ?? 'Event Day';
-    foreach (['guests', 'sofas', 'chairs', 'tables_dining', 'tables_buffet', 'waiters', 'chefs'] as $count) {
-        $fields[$count] = $fields[$count] ?? 0;
-    }
+    $fields['guests'] = $fields['guests'] ?? 0;
     foreach (['per_head_rate', 'discount'] as $money) {
         $fields[$money] = $fields[$money] ?? '0.00';
     }
@@ -279,6 +296,7 @@ function parse_booking_input(PDO $pdo, array $post, array $user, ?array $existin
     $venueRaw = is_string($post['venue_id'] ?? null) ? trim($post['venue_id']) : '';
     $fields['venue_id'] = null;
     $fields['venue_other'] = null;
+    $venueDefaultLocation = null;
     if ($venueRaw === 'other') {
         $other = trim((string) ($post['venue_other'] ?? ''));
         if ($other === '') {
@@ -290,7 +308,7 @@ function parse_booking_input(PDO $pdo, array $post, array $user, ?array $existin
         }
     } elseif ($venueRaw !== '') {
         $venueId = ctype_digit($venueRaw) ? (int) $venueRaw : 0;
-        $st = $pdo->prepare('SELECT id, is_active FROM venues WHERE id = ?');
+        $st = $pdo->prepare('SELECT id, location, is_active FROM venues WHERE id = ?');
         $st->execute([$venueId]);
         $venue = $st->fetch();
         $unchanged = $existing !== null && (int) $existing['venue_id'] === $venueId;
@@ -298,7 +316,30 @@ function parse_booking_input(PDO $pdo, array $post, array $user, ?array $existin
             $errors['venue_id'] = 'Venue: choose a venue from the list.';
         } else {
             $fields['venue_id'] = $venueId;
+            $venueDefaultLocation = $venue['location'];
         }
+    }
+
+    // Venue location: the booking keeps its own copy, so later edits to the venue never rewrite old
+    // paperwork. The form pre-fills it from the venue; whatever is submitted wins, and an empty box
+    // falls back to the venue's current location (so it is still right when JavaScript is off).
+    $locationRaw = trim((string) ($post['venue_location'] ?? ''));
+    if (mb_strlen($locationRaw) > 150) {
+        $errors['venue_location'] = 'Venue location: at most 150 characters.';
+        $fields['venue_location'] = null;
+    } else {
+        $fields['venue_location'] = $locationRaw !== '' ? $locationRaw : $venueDefaultLocation;
+    }
+
+    // Event slot: a listed venue is booked by venue + date + slot. The slot sets the start time.
+    [$slotFields, $slotError] = parse_booking_slot($pdo, $post['slot_id'] ?? '', $fields['venue_id'],
+        $fields['event_date'], $existing);
+    $fields += $slotFields;
+    if ($slotError !== null && !isset($errors['venue_id'])) {
+        $errors['slot_id'] = $slotError;
+    }
+    if ($fields['slot_id'] !== null) {
+        $fields['start_time'] = $fields['slot_start'];
     }
 
     // Vendor (ownership rules, plan Section 5).
@@ -308,6 +349,14 @@ function parse_booking_input(PDO $pdo, array $post, array $user, ?array $existin
         $fields['firm_name'] = $user['firm_name'];
         $fields['rep_name'] = $user['rep_name'];
         $fields['rep_contact'] = $user['contact'];
+
+        // AO Mess sets the fixed charges, discount, refund terms and its own receipt. A vendor
+        // describes the event and quotes the per-head rate, nothing more.
+        // Enforced here rather than only in the view, so a hand-made POST can't get round it.
+        foreach (ADMIN_ONLY_FIELDS as $field => $default) {
+            $fields[$field] = $existing === null ? $default : $existing[$field];
+            unset($errors[$field]);   // never report an error for a field they cannot set
+        }
     } else {
         $vendorRaw = is_string($post['vendor_id'] ?? null) ? trim($post['vendor_id']) : '';
         $fields['vendor_id'] = $vendorRaw === '' ? null : (ctype_digit($vendorRaw) ? (int) $vendorRaw : -1);
@@ -317,7 +366,7 @@ function parse_booking_input(PDO $pdo, array $post, array $user, ?array $existin
         }
     }
 
-    [$lines, $lineErrors] = parse_booking_lines($post['lines'] ?? [], $formLines);
+    [$lines, $lineErrors] = parse_booking_lines($post['lines'] ?? [], $formLines, $user['role'] === 'admin');
     $errors += $lineErrors;
 
     return ['fields' => $fields, 'lines' => $lines, 'errors' => $errors];
@@ -389,7 +438,7 @@ function parse_booking_value(string $type, $param, string $raw)
  *
  * @return array{0: array, 1: array} [lines keyed like $formLines, errors]
  */
-function parse_booking_lines($posted, array $formLines): array
+function parse_booking_lines($posted, array $formLines, bool $isAdmin = true): array
 {
     $posted = is_array($posted) ? $posted : [];
     $lines = [];
@@ -406,6 +455,28 @@ function parse_booking_lines($posted, array $formLines): array
         $notes = is_string($in['notes'] ?? null) ? trim($in['notes']) : '';
         if (mb_strlen($notes) > 255) {
             $errors["line_$key"] = "$label: notes can be at most 255 characters.";
+        }
+        if ($line['section'] === 'charge' && !$isAdmin) {
+            // A vendor chooses which charges apply (tick, quantity, notes); the rate is AO Mess's:
+            // the stored rate, or the catalog default for a newly ticked item. Any posted rate is
+            // ignored. A charge with no rate yet counts as Rs. 0 until AO Mess prices it.
+            if ($line['unit'] === 'per unit') {
+                try {
+                    $qty = parse_whole_number(is_string($in['qty'] ?? null) ? $in['qty'] : '');
+                    if ($selected && $qty === null) {
+                        throw new InvalidInput('enter a quantity (0 or more).');
+                    }
+                } catch (InvalidInput $e) {
+                    $errors["line_$key"] = "$label: " . $e->getMessage();
+                }
+            }
+            if ($line['line_id'] === null && !$selected) {
+                continue;
+            }
+            $lines[$key] = $line + ['new' => [
+                'selected' => $selected, 'rate' => $line['rate'], 'qty' => $qty, 'notes' => $notes === '' ? null : $notes,
+            ]];
+            continue;
         }
         try {
             if ($line['section'] === 'charge') {
@@ -449,7 +520,24 @@ function parse_booking_lines($posted, array $formLines): array
  */
 function save_booking_draft(PDO $pdo, array $user, ?int $bookingId, ?int $version, array $fields, array $lines): array
 {
+    try {
+        return save_booking_draft_tx($pdo, $user, $bookingId, $version, $fields, $lines);
+    } catch (PDOException $e) {
+        if (is_slot_hold_violation($e)) {   // the database's own guard against a double booking
+            throw new BookingValidationError(['slot_id' => 'Event slot: this slot was booked by someone else a moment ago. Choose another slot.']);
+        }
+        throw $e;
+    }
+}
+
+function save_booking_draft_tx(PDO $pdo, array $user, ?int $bookingId, ?int $version, array $fields, array $lines): array
+{
     return db_transaction(static function (PDO $pdo) use ($user, $bookingId, $version, $fields, $lines) {
+        // Lock order (app/lifecycle.php): the venue row before the booking. Two people choosing the
+        // same slot queue here, and the second one sees the first one's booking.
+        if ($fields['slot_id'] !== null) {
+            lock_venues($pdo, [$fields['venue_id']]);
+        }
         $old = null;
         if ($bookingId !== null) {
             $st = $pdo->prepare('SELECT * FROM bookings WHERE id = ? AND version = ? FOR UPDATE');
@@ -462,6 +550,14 @@ function save_booking_draft(PDO $pdo, array $user, ?int $bookingId, ?int $versio
             if (!booking_allows($old, $user, 'edit') || $old['status'] !== 'draft') {
                 throw new BookingValidationError(['status' => 'This booking is no longer a draft, so it can\'t be edited here.']);
             }
+        }
+
+        // The same venue + date + slot is booked once (checked when this booking takes the slot on).
+        $slotMoves = $old === null || (string) $old['slot_id'] !== (string) $fields['slot_id']
+            || $old['event_date'] !== $fields['event_date'];
+        if ($fields['slot_id'] !== null && $fields['event_date'] !== null && $slotMoves
+            && ($taken = slot_taken_message($pdo, $bookingId, $fields['slot_id'], $fields['event_date'], $user['role'] === 'admin')) !== null) {
+            throw new BookingValidationError(['slot_id' => $taken]);
         }
 
         // An admin setting or changing the vendor: must be an active, approved vendor (shared lock; LOCK IN SHARE MODE works on MySQL 8 and MariaDB, FOR SHARE is MySQL-only).
@@ -630,18 +726,88 @@ function booking_field_diff(array $old, array $new): array
 // Venue warnings (drafts never block; plan Section 9)
 // ---------------------------------------------------------------------------
 
-/** Other non-cancelled bookings on the same venue and date. */
-function venue_clashes(PDO $pdo, ?int $bookingId, ?int $venueId, ?string $eventDate): array
+/**
+ * Other non-cancelled bookings on the same venue and date that compete for the same time: the same
+ * slot, or either booking has no slot (a booking made before slots existed took the whole day).
+ * Bookings in different slots of one venue and date don't clash. $slotId null = the whole day.
+ */
+function venue_clashes(PDO $pdo, ?int $bookingId, ?int $venueId, ?string $eventDate, ?int $slotId = null): array
 {
     if ($venueId === null || $eventDate === null) {
         return [];
     }
+    $params = [$venueId, $eventDate, $bookingId ?? 0];
+    $slotSql = '';
+    if ($slotId !== null) {
+        $slotSql = ' AND (b.slot_id IS NULL OR b.slot_id = ?)';
+        $params[] = $slotId;
+    }
     $st = $pdo->prepare("SELECT b.id, b.unique_id, b.status, v.name AS venue_name
                            FROM bookings b JOIN venues v ON v.id = b.venue_id
-                          WHERE b.venue_id = ? AND b.event_date = ? AND b.status <> 'cancelled' AND b.id <> ?
+                          WHERE b.venue_id = ? AND b.event_date = ? AND b.status <> 'cancelled' AND b.id <> ?$slotSql
                           ORDER BY FIELD(b.status, 'completed', 'confirmed', 'draft'), b.id");
-    $st->execute([$venueId, $eventDate, $bookingId ?? 0]);
+    $st->execute($params);
     return $st->fetchAll();
+}
+
+// ---------------------------------------------------------------------------
+// Calendar (plan Section 9: see the month before promising a date)
+// ---------------------------------------------------------------------------
+
+/**
+ * Every booking that occupies a venue in the given month, oldest first.
+ *
+ * Cancelled bookings are left out: they release the slot. Unlike the registry this is NOT scoped to
+ * the signed-in vendor — the whole point is that a vendor can see a date is already taken. What a
+ * vendor may *read* about someone else's booking is limited by calendar_entry_is_own(); the page
+ * shows only the venue and the status for those.
+ */
+function calendar_bookings(PDO $pdo, string $monthStart, string $monthEnd): array
+{
+    $st = $pdo->prepare("SELECT b.id, b.unique_id, b.revision, b.status, b.vendor_id, b.event_date,
+                                b.client_name, b.firm_name, b.venue_location, b.start_time,
+                                b.slot_name, b.slot_start, b.slot_end,
+                                COALESCE(v.name, b.venue_other) AS venue
+                           FROM bookings b LEFT JOIN venues v ON v.id = b.venue_id
+                          WHERE b.event_date BETWEEN ? AND ? AND b.status <> 'cancelled'
+                          ORDER BY b.event_date, b.start_time IS NULL, b.start_time, FIELD(b.status, 'completed', 'confirmed', 'draft'), b.id");
+    $st->execute([$monthStart, $monthEnd]);
+    return $st->fetchAll();
+}
+
+/** True when this viewer owns the booking (admins own them all) and may see its client details. */
+function calendar_entry_is_own(array $user, array $entry): bool
+{
+    return $user['role'] === 'admin' || (int) $entry['vendor_id'] === (int) $user['id'];
+}
+
+/**
+ * Days booked per venue for the month, for the availability bars.
+ *
+ * Counts distinct days, not bookings: two bookings on one venue on one day is a clash, not two days
+ * of use. Free-text ("Other") venues are left out — they aren't real venues and can't be tracked.
+ *
+ * @return list<array{venue: string, days: int, free: int}>
+ */
+function venue_availability(PDO $pdo, array $entries, int $daysInMonth): array
+{
+    $bookedDays = [];
+    foreach ($entries as $e) {
+        if ($e['venue'] !== null && $e['venue'] !== '') {
+            $bookedDays[$e['venue']][$e['event_date']] = true;
+        }
+    }
+    $rows = [];
+    foreach ($pdo->query('SELECT name FROM venues WHERE is_active = 1 ORDER BY sort_order, name')->fetchAll() as $v) {
+        $days = count($bookedDays[$v['name']] ?? []);
+        $rows[] = ['venue' => $v['name'], 'days' => $days, 'free' => max(0, $daysInMonth - $days)];
+        unset($bookedDays[$v['name']]);
+    }
+    // A venue that was deactivated mid-month still has bookings worth showing.
+    foreach ($bookedDays as $name => $days) {
+        $rows[] = ['venue' => $name, 'days' => count($days), 'free' => max(0, $daysInMonth - count($days))];
+    }
+    return $rows;
 }
 
 /** Warning text for clashes. Vendors aren't shown other vendors' SLA numbers. */
@@ -652,8 +818,8 @@ function venue_clash_messages(array $clashes, ?string $eventDate, bool $isAdmin)
         $who = $isAdmin ? ' (' . $c['unique_id'] . ')' : '';
         $date = date('d M Y', strtotime((string) $eventDate));
         $messages[] = $c['status'] === 'draft'
-            ? "{$c['venue_name']} also has another draft booking on $date$who. Only one booking per venue per day can be confirmed."
-            : "{$c['venue_name']} is already {$c['status']} for another booking on $date$who. This booking can't be confirmed for the same venue and date.";
+            ? "{$c['venue_name']} also has another draft booking at the same time on $date$who. Only one booking per venue and slot can be confirmed."
+            : "{$c['venue_name']} is already {$c['status']} for another booking at the same time on $date$who. This booking can't be confirmed for the same venue, date and slot.";
     }
     return $messages;
 }
