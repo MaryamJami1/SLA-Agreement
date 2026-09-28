@@ -30,6 +30,8 @@ $MYSQL -e "UPDATE users SET password_hash='$HASH', must_change_password=0 WHERE 
   ('bilal','$HASH','vendor','Bilal Ahmed','Bilal Events','Bilal Ahmed','0300-1111111','active');"
 VENDOR_ID=$($MYSQL -e "SELECT id FROM users WHERE username='uzair'")
 LAWN_A=$($MYSQL -e "SELECT id FROM venues WHERE name='Lawn A'")
+SLOT_A=$($MYSQL -e "SELECT id FROM venue_slots WHERE venue_id=$LAWN_A AND name='Morning'")
+SLOT_EVE=$($MYSQL -e "SELECT id FROM venue_slots WHERE venue_id=$LAWN_A AND name='Evening'")
 VENUE_CHARGE=$($MYSQL -e "SELECT id FROM item_catalog WHERE name='Venue Charges'")
 TRACING=$($MYSQL -e "SELECT id FROM item_catalog WHERE section='charge' AND unit='per unit' LIMIT 1")
 LED=$($MYSQL -e "SELECT id FROM item_catalog WHERE name='LED'")
@@ -43,7 +45,7 @@ contains "Uzair Caterers" "vendor snapshot pre-filled from the profile"
 csrf a /booking/form.php
 req a POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=Ayesha Siddiqui" "client_cnic=4210112345671" \
   "vendor_id=$VENDOR_ID" \
-  "event_type=Valima" "event_date=2026-12-20" "venue_id=$LAWN_A" "guests=200" "per_head_rate=1,500" "discount=5000" \
+  "event_type=Valima" "event_date=2026-12-20" "venue_id=$LAWN_A" "slot_id=$SLOT_A" "guests=200" "per_head_rate=1,500" "discount=5000" \
   "lines[c$VENUE_CHARGE][present]=1" "lines[c$VENUE_CHARGE][selected]=1" "lines[c$VENUE_CHARGE][rate]=50,000" \
   "lines[c$TRACING][present]=1" "lines[c$TRACING][selected]=1" "lines[c$TRACING][rate]=300" "lines[c$TRACING][qty]=10" \
   "lines[c$LED][present]=1" "lines[c$LED][selected]=1" "lines[c$LED][notes]=warm white"
@@ -65,7 +67,7 @@ echo "== Edit, and a stale version from a second tab"
 csrf v /booking/form.php?id=$ID; TAB1=$TOKEN
 LINE=$($MYSQL -e "SELECT id FROM booking_line_items WHERE booking_id=$ID AND label='Venue Charges'")
 req v POST /booking/save.php "_csrf=$TAB1" "id=$ID" "version=1" "client_name=Ayesha Siddiqui" "event_type=Valima" "event_date=2026-12-20" \
-  "venue_id=$LAWN_A" "guests=250" "per_head_rate=1500" "lines[l$LINE][present]=1" "lines[l$LINE][selected]=1" "lines[l$LINE][rate]=50000"
+  "venue_id=$LAWN_A" "slot_id=$SLOT_A" "guests=250" "per_head_rate=1500" "lines[l$LINE][present]=1" "lines[l$LINE][selected]=1" "lines[l$LINE][rate]=50000"
 expect "$CODE" "303" "tab 1 saves (version 1 → 2)"
 req v GET "/booking/form.php?id=$ID"; expect "$(field version)" "2" "version is now 2"
 contains "Rs. 3,75,000" "guests 250 recomputed the guest charges"
@@ -98,16 +100,38 @@ req a GET "/booking/form.php?id=$ID"; expect "$CODE" "200" "admin opens any book
 contains "Uzair Caterers — Uzair Khan (uzair)" "admin sees the vendor dropdown"
 req a GET /booking/list.php; contains "SLA-$YEAR-0001" "admin registry lists the booking"
 
-echo "== Venue warning (drafts only warn)"
+echo "== Event slots: venue + date + slot is booked once"
+req v GET "/booking/slots.php?venue_id=$LAWN_A&date=2026-12-20"
+expect "$CODE" "200" "slot availability endpoint answers"
+contains '"time":"12:00 PM – 3:00 PM","available":false' "Morning shows as booked on 20 Dec"
+contains '"time":"4:00 PM – 7:00 PM","available":true' "Afternoon shows as available"
+contains '"time":"8:00 PM – 12:00 AM"' "Evening runs 8 PM to midnight"
+lacks "SLA-" "the endpoint never says who holds a slot"
+req v GET "/booking/slots.php?venue_id=$LAWN_A&date=2026-12-20&booking=$ID"
+contains '"time":"12:00 PM – 3:00 PM","available":true,"own":true' "the booking's own slot stays selectable for it"
+req v GET "/booking/slots.php?venue_id=99999&date=2026-12-20"; expect "$CODE" "404" "unknown venue: 404"
+req v GET "/booking/form.php?id=$ID"
+contains "Available Event Slots" "slot picker replaces the start-time box"
+contains 'name="slot_id" value="[0-9]*" checked' "the booking's slot is selected"
 csrf a /booking/form.php
 req a POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=Second Client" "event_date=2026-12-20" "venue_id=$LAWN_A"
+expect "$CODE" "422" "a listed venue and date need a slot"
+contains "Event slot: choose one of the available slots" "slot required message"
+csrf a /booking/form.php
+req a POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=Second Client" "event_date=2026-12-20" "venue_id=$LAWN_A" "slot_id=$SLOT_A"
+expect "$CODE" "422" "the same slot can't be booked twice"
+contains "Morning is already booked at this venue on 20 Dec 2026 (SLA-$YEAR-0001" "admin is told which booking holds it"
+csrf v /booking/form.php
+req v POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=Second Client" "event_date=2026-12-20" "venue_id=$LAWN_A" "slot_id=$SLOT_A"
+expect "$CODE" "422" "a vendor can't book it either"
+lacks "(SLA-$YEAR-0001" "vendor isn't shown the other booking's number"
+csrf a /booking/form.php
+req a POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=Second Client" "event_date=2026-12-20" "venue_id=$LAWN_A" "slot_id=$SLOT_EVE"
 ID2=${LOC##*=}
 req a GET "/booking/form.php?id=$ID2"
-contains "Lawn A also has another draft booking on 20 Dec 2026 (SLA-$YEAR-0001)" "admin sees the clash with the SLA number"
-contains "SLA-$YEAR-0002" "second booking saved despite the clash (drafts never block)"
-req v GET "/booking/form.php?id=$ID"
-contains "Lawn A also has another draft booking on 20 Dec 2026." "vendor sees the clash"
-lacks "(SLA-$YEAR-0002)" "vendor isn't shown the other booking's number"
+contains "SLA-$YEAR-0002" "another slot of the same venue and date is saved"
+lacks "also has another draft booking" "different slots don't clash"
+contains 'class="slot-card is-booked"' "Morning shows as a disabled, booked card on the other booking"
 
 echo "== Confirmed bookings are read-only in Phase 3"
 $MYSQL -e "UPDATE bookings SET status='confirmed' WHERE id=$ID"

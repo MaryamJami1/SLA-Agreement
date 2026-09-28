@@ -4,9 +4,9 @@ Work through this on the deployed site (staging first, then live). It is the pla
 verification list, with a note of what is already covered by the automated tests.
 
 **Already automated** (run locally against a throwaway database, see `docs/TESTING.md`):
-`php tests/run.php` (266 checks), `php tests/db_check.php` (211), `php tests/concurrency_check.php` (7),
-and the six `tests/e2e_*.sh` HTTP suites (297). They cover the money rules, the lifecycle, amendments,
-payments, documents, attachments and the admin screens.
+`php tests/run.php` (287 checks), `php tests/db_check.php` (284), `php tests/concurrency_check.php` (8),
+and the six `tests/e2e_*.sh` HTTP suites (329). They cover the money rules, event slots and double
+booking, the lifecycle, amendments, payments, documents, attachments and the admin screens.
 
 **This list is what those can't prove**: that the real server is configured correctly, that printing
 looks right on paper, and that the whole thing behaves for real people.

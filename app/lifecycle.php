@@ -67,15 +67,23 @@ function lock_active_vendor(PDO $pdo, ?int $vendorId): ?array
 }
 
 /**
- * Confirmed/completed bookings on the same venue and date, as a LOCKING read so it sees rows another
- * transaction has just committed (a plain SELECT could read an older snapshot).
+ * Confirmed/completed bookings on the same venue and date at the same time, as a LOCKING read so it
+ * sees rows another transaction has just committed (a plain SELECT could read an older snapshot).
+ * "The same time" is the same slot, or either booking has no slot (bookings made before slots
+ * existed took the whole day). $slotId null = the whole day.
  */
-function blocking_venue_conflicts(PDO $pdo, int $bookingId, int $venueId, string $eventDate): array
+function blocking_venue_conflicts(PDO $pdo, int $bookingId, int $venueId, string $eventDate, ?int $slotId = null): array
 {
+    $params = [$venueId, $eventDate, $bookingId];
+    $slotSql = '';
+    if ($slotId !== null) {
+        $slotSql = ' AND (slot_id IS NULL OR slot_id = ?)';
+        $params[] = $slotId;
+    }
     $st = $pdo->prepare("SELECT id, unique_id, status FROM bookings
-                          WHERE venue_id = ? AND event_date = ? AND status IN ('confirmed', 'completed') AND id <> ?
+                          WHERE venue_id = ? AND event_date = ? AND status IN ('confirmed', 'completed') AND id <> ?$slotSql
                           FOR UPDATE");
-    $st->execute([$venueId, $eventDate, $bookingId]);
+    $st->execute($params);
     return $st->fetchAll();
 }
 
@@ -177,6 +185,9 @@ function confirm_booking(PDO $pdo, array $admin, int $id, int $version, $overrid
             throw new LifecycleRefused("Only a draft can be confirmed; this booking is {$b['status']}.");
         }
         $problems = confirm_requirement_problems($pdo, $b);
+        if ($b['venue_id'] !== null && $b['slot_id'] === null) {
+            $problems[] = 'an event slot';
+        }
         if (lock_active_vendor($pdo, $b['vendor_id'] === null ? null : (int) $b['vendor_id']) === null) {
             array_unshift($problems, 'an active, approved vendor');
         }
@@ -184,10 +195,11 @@ function confirm_booking(PDO $pdo, array $admin, int $id, int $version, $overrid
             throw new LifecycleRefused('This booking can\'t be confirmed yet. It needs ' . implode(', ', $problems) . '.');
         }
 
-        $conflicts = $venueId !== null ? blocking_venue_conflicts($pdo, $id, $venueId, $b['event_date']) : []; // 3.
+        $conflicts = $venueId !== null                         // 3.
+            ? blocking_venue_conflicts($pdo, $id, $venueId, $b['event_date'], $b['slot_id'] === null ? null : (int) $b['slot_id']) : [];
         if ($conflicts && $override === '') {                  // 4.
             throw new LifecycleRefused('The venue is already ' . $conflicts[0]['status'] . ' for ' . $conflicts[0]['unique_id']
-                . ' on this date. Only one booking per venue per day can be confirmed. To confirm anyway, enter an override reason.');
+                . ' at the same time on this date. Only one booking per venue and slot can be confirmed. To confirm anyway, enter an override reason.');
         }
 
         $pdo->prepare("UPDATE bookings SET status = 'confirmed', confirmed_at = NOW(), updated_by = ?, updated_at = NOW(),
@@ -344,18 +356,33 @@ function save_booking_confirmed(PDO $pdo, array $admin, int $id, int $version, a
         throw new BookingValidationError(['amend_reason' => 'Reasons can be at most ' . REASON_MAX . ' characters.']);
     }
 
+    try {
+        return save_booking_confirmed_tx($pdo, $admin, $id, $version, $fields, $lines, $amendReason, $override);
+    } catch (PDOException $e) {
+        if (is_slot_hold_violation($e)) {   // the database's own guard against a double booking
+            throw new BookingValidationError(['slot_id' => 'Event slot: this slot was booked by someone else a moment ago. Choose another slot.']);
+        }
+        throw $e;
+    }
+}
+
+function save_booking_confirmed_tx(PDO $pdo, array $admin, int $id, int $version, array $fields, array $lines,
+                                   string $amendReason, string $override): array
+{
     return db_transaction(static function (PDO $pdo) use ($admin, $id, $version, $fields, $lines, $amendReason, $override) {
         // Step 0: locks — venues (old and new, ascending) before the booking, then the vendor.
-        $st = $pdo->prepare('SELECT venue_id, event_date FROM bookings WHERE id = ?');
+        $st = $pdo->prepare('SELECT venue_id, event_date, slot_id FROM bookings WHERE id = ?');
         $st->execute([$id]);
-        $pre = $st->fetch() ?: ['venue_id' => null, 'event_date' => null];
+        $pre = $st->fetch() ?: ['venue_id' => null, 'event_date' => null, 'slot_id' => null];
         $preVenue = $pre['venue_id'] === null ? null : (int) $pre['venue_id'];
-        $moves = $preVenue !== $fields['venue_id'] || $pre['event_date'] !== $fields['event_date'];
+        $preSlot = $pre['slot_id'] === null ? null : (int) $pre['slot_id'];
+        $moves = $preVenue !== $fields['venue_id'] || $pre['event_date'] !== $fields['event_date'] || $preSlot !== $fields['slot_id'];
         if ($moves) {
             lock_venues($pdo, [$preVenue, $fields['venue_id']]);
         }
         $old = lock_booking($pdo, $id, $version);
-        if (($old['venue_id'] === null ? null : (int) $old['venue_id']) !== $preVenue || $old['event_date'] !== $pre['event_date']) {
+        if (($old['venue_id'] === null ? null : (int) $old['venue_id']) !== $preVenue || $old['event_date'] !== $pre['event_date']
+            || ($old['slot_id'] === null ? null : (int) $old['slot_id']) !== $preSlot) {
             throw new BookingConflict();
         }
         if ($old['status'] !== 'confirmed' || $admin['role'] !== 'admin') {
@@ -401,10 +428,16 @@ function save_booking_confirmed(PDO $pdo, array $admin, int $id, int $version, a
                 }
             }
             if ($moves && $fields['venue_id'] !== null && $fields['event_date'] !== null) {     // 3.
-                $conflicts = blocking_venue_conflicts($pdo, $id, $fields['venue_id'], $fields['event_date']);
-                if ($conflicts && $override === '') {
-                    $errors['venue_override'] = 'The venue is already ' . $conflicts[0]['status'] . ' for ' . $conflicts[0]['unique_id']
-                        . ' on that date. Enter a venue override reason to amend anyway.';
+                if ($fields['slot_id'] === null) {
+                    $errors['slot_id'] = $errors['slot_id'] ?? 'Event slot: choose one of the available slots for this venue and date.';
+                } elseif (($taken = slot_taken_message($pdo, $id, $fields['slot_id'], $fields['event_date'], true)) !== null) {
+                    $errors['slot_id'] = $taken;   // never overridable: the same slot can't be held twice
+                } else {
+                    $conflicts = blocking_venue_conflicts($pdo, $id, $fields['venue_id'], $fields['event_date'], $fields['slot_id']);
+                    if ($conflicts && $override === '') {
+                        $errors['venue_override'] = 'The venue is already ' . $conflicts[0]['status'] . ' for ' . $conflicts[0]['unique_id']
+                            . ' for the whole of that date. Enter a venue override reason to amend anyway.';
+                    }
                 }
             }
         }

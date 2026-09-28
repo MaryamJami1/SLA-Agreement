@@ -52,6 +52,32 @@ if ($venueValue === 'other') {
         }
     }
 }
+
+/* Event slots, seeded here so the form works without JavaScript; app.js refreshes them from
+   booking/slots.php whenever the date or venue changes. */
+$slotValue = fv($ctx, 'slot_id');
+$slotDate = fv($ctx, 'event_date');
+$slotDateOk = DateTimeImmutable::createFromFormat('!Y-m-d', $slotDate);
+$slotDate = $slotDateOk && $slotDateOk->format('Y-m-d') === $slotDate ? $slotDate : null;
+$slotOptions = [];
+$slotContext = '';
+$slotMessage = '';
+$slotBooked = $booking ? booking_slot_label($booking) : '';
+if (!$ro) {
+    if (!ctype_digit($venueValue) || $slotDate === null) {
+        $slotMessage = 'Choose the date of the event and a venue to see the available slots.';
+    } else {
+        $keepSlot = $booking && $booking['slot_id'] !== null && (string) $booking['venue_id'] === $venueValue
+            ? (int) $booking['slot_id'] : null;
+        $slotOptions = slot_availability($pdo, (int) $venueValue, $slotDate, $booking ? (int) $booking['id'] : null, $keepSlot);
+        $slotContext = $sumVenue . ' · ' . date('D, d M Y', strtotime($slotDate));
+        if (!$slotOptions) {
+            $slotMessage = 'No event slots are set up for this venue yet. Choose another venue.';
+        } elseif (!array_filter($slotOptions, static fn($s) => $s['available'] || $s['own'])) {
+            $slotMessage = 'No time slots available for this venue on the selected date. Please select another date or venue.';
+        }
+    }
+}
 ?>
 <?php if ($conflict): ?>
 <div class="flash error">
@@ -202,14 +228,46 @@ if ($venueValue === 'other') {
         </select>
         <?= field_error($ctx, 'venue_id') ?>
       </div>
+      <?= count_field($ctx, 'guests', 'Estimated Guests') ?>
+
+<?php if ($ro): ?>
+      <div class="field span3<?= $venueValue === 'other' ? ' hidden' : '' ?>"><label>Event Slot</label>
+        <output class="readout slot-readout"><?php if ($slotBooked !== ''): ?><?= h($slotBooked) ?><?php elseif (fv($ctx, 'start_time') !== ''): ?>Starts <?= h(slot_time_label(fv($ctx, 'start_time'))) ?> <span class="hint">(booked before event slots)</span><?php else: ?>—<?php endif; ?></output>
+      </div>
+<?php else: ?>
+      <div class="field span3 slot-field<?= $venueValue === 'other' ? ' hidden' : '' ?>" id="slot-field"
+           data-endpoint="<?= h(url('booking/slots.php')) ?>" data-booking="<?= $booking ? (int) $booking['id'] : '' ?>">
+        <div class="slot-head">
+          <span class="slot-title" id="slot-title">Available Event Slots</span>
+          <span class="slot-context hint" id="slot-context"><?= h($slotContext) ?></span>
+        </div>
+        <div class="slot-grid" id="slot-grid" role="radiogroup" aria-labelledby="slot-title" aria-describedby="slot-message"<?= $slotOptions ? '' : ' hidden' ?>>
+<?php foreach ($slotOptions as $s):
+    $selectable = $s['available'] || $s['own'];
+    $checked = $selectable && (string) $s['id'] === $slotValue;
+    $state = $s['own'] && $s['disabled'] ? 'Your booking · no longer offered' : ($selectable ? 'Available' : 'Booked'); ?>
+          <label class="slot-card<?= $selectable ? '' : ' is-booked' ?>">
+            <input type="radio" name="slot_id" value="<?= (int) $s['id'] ?>"<?= $checked ? ' checked' : '' ?><?= $selectable ? '' : ' disabled' ?>>
+            <span class="slot-icon" aria-hidden="true"><?= h($s['icon'] ?? '') ?></span>
+            <span class="slot-body">
+              <span class="slot-name"><?= h($s['name']) ?></span>
+              <span class="slot-time"><?= h($s['time']) ?></span>
+            </span>
+            <span class="slot-state"><?= h($state) ?></span>
+          </label>
+<?php endforeach; ?>
+        </div>
+        <p class="slot-message" id="slot-message" aria-live="polite"<?= $slotMessage === '' ? ' hidden' : '' ?>><?= h($slotMessage) ?></p>
+        <?= field_error($ctx, 'slot_id') ?>
+      </div>
+<?php endif; ?>
+
       <div class="field other-field<?= $venueValue === 'other' ? '' : ' hidden' ?>"><label for="f_venue_other">If Other, specify</label>
         <input type="text" id="f_venue_other" name="venue_other" value="<?= h(fv($ctx, 'venue_other')) ?>" maxlength="150"<?= ro($ctx) ?>>
         <?= field_error($ctx, 'venue_other') ?>
         <span class="hint">Venues outside the list can't be checked for double booking.</span>
       </div>
-      <?= input_field($ctx, 'setup_time', 'Setup Ready By', 'time') ?>
-      <?= input_field($ctx, 'start_time', 'Event Start Time', 'time') ?>
-      <?= count_field($ctx, 'guests', 'Estimated Guests') ?>
+      <?= input_field($ctx, 'start_time', 'Event Start Time', 'time', 'start-time-field' . ($venueValue === 'other' ? '' : ' hidden')) ?>
     </div>
   </section>
 

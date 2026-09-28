@@ -67,8 +67,7 @@ $guests = (int) $booking['guests'];
           <th>Date</th><td><?= h(ddate($booking['event_date'])) ?><?= $d['event_day'] ? ' (' . h($d['event_day']) . ')' : '' ?></td></tr>
       <tr><th>Venue</th><td><?= h(dvenue($d)) ?></td>
           <th>Alternate date</th><td><?= h(ddate($booking['alt_date'])) ?></td></tr>
-      <tr><th>Setup ready by</th><td><?= h(dtime($booking['setup_time'])) ?></td>
-          <th>Event starts</th><td><?= h(dtime($booking['start_time'])) ?></td></tr>
+      <tr><th>Event time</th><td colspan="3"><?= h(dslot($booking)) ?></td></tr>
       <tr><th>Estimated guests</th><td><?= $guests ?></td>
           <th>Referred by</th><td><?= h(dv(trim($booking['reference_name'] . ' ' . ($booking['reference_department'] ? '(' . $booking['reference_department'] . ')' : '')))) ?></td></tr>
     </table>

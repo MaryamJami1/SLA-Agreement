@@ -35,10 +35,11 @@ $MYSQL -e "UPDATE users SET password_hash='$HASH', must_change_password=0 WHERE 
   ('uzair','$HASH','vendor','Uzair Khan','Uzair Caterers','Uzair Khan','0312-2159834','active');"
 VENDOR_ID=$($MYSQL -e "SELECT id FROM users WHERE username='uzair'")
 LAWN_A=$($MYSQL -e "SELECT id FROM venues WHERE name='Lawn A'")
+SLOT_A=$($MYSQL -e "SELECT id FROM venue_slots WHERE venue_id=$LAWN_A AND name='Morning'")
 login v uzair Passw0rd-e2e
 login a admin Passw0rd-e2e
 csrf a /booking/form.php
-req a POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=Payment Client" "event_date=2027-12-12" "venue_id=$LAWN_A" \
+req a POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=Payment Client" "event_date=2027-12-12" "venue_id=$LAWN_A" "slot_id=$SLOT_A" \
   "guests=100" "per_head_rate=1000" "vendor_id=$VENDOR_ID" "refund_pct_30=50"
 ID=${LOC##*=}
 csrf a "/booking/form.php?id=$ID"

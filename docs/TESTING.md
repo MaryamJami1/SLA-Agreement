@@ -39,7 +39,8 @@ C:/xampp/php/php.exe tests/concurrency_check.php
 
 Runs real parallel PHP processes against `<DB_NAME>_race`:
 
-- two admins confirming the same venue and date at the same moment → exactly one succeeds;
+- two people booking the same venue, date and slot at the same moment → exactly one succeeds;
+- two drafts in different slots of one venue and date confirmed at the same moment → both succeed;
 - two amendments swapping venues at the same moment → both succeed, no deadlock.
 
 ## 4. End-to-end checks over HTTP
@@ -60,11 +61,11 @@ re-import between runs):
 | Script | Covers |
 |---|---|
 | `tests/e2e.sh` | sign-in, throttling, sessions, CSRF, vendor approval |
-| `tests/e2e_booking.sh` | the booking form, saving, validation, access rules |
+| `tests/e2e_booking.sh` | the booking form, event slots and availability, saving, validation, access rules |
 | `tests/e2e_lifecycle.sh` | registry, confirm, complete, cancel, delete, amendments |
 | `tests/e2e_payments.sh` | payments, refunds, voids, the refund cap |
 | `tests/e2e_documents.sh` | agreement, invoice, operations sheet |
-| `tests/e2e_attachments.sh` | uploads, downloads, voiding, catalog and venue admin |
+| `tests/e2e_attachments.sh` | uploads, downloads, voiding, catalog, venue and event slot admin |
 
 ```bash
 bash tests/e2e_lifecycle.sh

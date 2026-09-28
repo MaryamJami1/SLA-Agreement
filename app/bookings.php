@@ -7,6 +7,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/slots.php';
+
 const EVENT_TYPES    = ['Mehndi', 'Barat', 'Valima', 'Birthday', 'Corporate', 'Other'];
 const MENU_TYPES     = ['Buffet', 'Sitting Dinner', 'Hi-Tea', 'Other'];
 const STAGE_TYPES    = ['Full backdrop — fresh flowers', 'Artificial flowers', 'Fabric', 'Other'];
@@ -72,7 +74,8 @@ const ADMIN_ONLY_FIELDS = [
 
 /**
  * Scalar booking columns the form edits: name => [type, max length or options, label].
- * vendor_id and venue_id/venue_other are handled separately.
+ * vendor_id, venue_id/venue_other and the event slot are handled separately. start_time is only typed
+ * for "Other" venues; with a venue from the list it is the chosen slot's start.
  */
 function booking_field_specs(): array
 {
@@ -96,7 +99,8 @@ function booking_field_specs(): array
         'event_type_other'     => ['text', 100, 'Other event type'],
         'event_date'           => ['date', null, 'Date of event'],
         'alt_date'             => ['date', null, 'Alternate date'],
-        'setup_time'           => ['time', null, 'Setup ready by'],
+        // "Setup ready by" (setup_time) is no longer recorded. The column stays, holding what past
+        // bookings stored; nothing reads or writes it now.
         'start_time'           => ['time', null, 'Event start time'],
         'guests'               => ['count', null, 'Estimated guests'],
         'menu_type'            => ['select', MENU_TYPES, 'Menu type'],
@@ -327,6 +331,17 @@ function parse_booking_input(PDO $pdo, array $post, array $user, ?array $existin
         $fields['venue_location'] = $locationRaw !== '' ? $locationRaw : $venueDefaultLocation;
     }
 
+    // Event slot: a listed venue is booked by venue + date + slot. The slot sets the start time.
+    [$slotFields, $slotError] = parse_booking_slot($pdo, $post['slot_id'] ?? '', $fields['venue_id'],
+        $fields['event_date'], $existing);
+    $fields += $slotFields;
+    if ($slotError !== null && !isset($errors['venue_id'])) {
+        $errors['slot_id'] = $slotError;
+    }
+    if ($fields['slot_id'] !== null) {
+        $fields['start_time'] = $fields['slot_start'];
+    }
+
     // Vendor (ownership rules, plan Section 5).
     if ($user['role'] === 'vendor') {
         // Vendors never choose or change the owner; the snapshot always comes from their own profile.
@@ -505,7 +520,24 @@ function parse_booking_lines($posted, array $formLines, bool $isAdmin = true): a
  */
 function save_booking_draft(PDO $pdo, array $user, ?int $bookingId, ?int $version, array $fields, array $lines): array
 {
+    try {
+        return save_booking_draft_tx($pdo, $user, $bookingId, $version, $fields, $lines);
+    } catch (PDOException $e) {
+        if (is_slot_hold_violation($e)) {   // the database's own guard against a double booking
+            throw new BookingValidationError(['slot_id' => 'Event slot: this slot was booked by someone else a moment ago. Choose another slot.']);
+        }
+        throw $e;
+    }
+}
+
+function save_booking_draft_tx(PDO $pdo, array $user, ?int $bookingId, ?int $version, array $fields, array $lines): array
+{
     return db_transaction(static function (PDO $pdo) use ($user, $bookingId, $version, $fields, $lines) {
+        // Lock order (app/lifecycle.php): the venue row before the booking. Two people choosing the
+        // same slot queue here, and the second one sees the first one's booking.
+        if ($fields['slot_id'] !== null) {
+            lock_venues($pdo, [$fields['venue_id']]);
+        }
         $old = null;
         if ($bookingId !== null) {
             $st = $pdo->prepare('SELECT * FROM bookings WHERE id = ? AND version = ? FOR UPDATE');
@@ -518,6 +550,14 @@ function save_booking_draft(PDO $pdo, array $user, ?int $bookingId, ?int $versio
             if (!booking_allows($old, $user, 'edit') || $old['status'] !== 'draft') {
                 throw new BookingValidationError(['status' => 'This booking is no longer a draft, so it can\'t be edited here.']);
             }
+        }
+
+        // The same venue + date + slot is booked once (checked when this booking takes the slot on).
+        $slotMoves = $old === null || (string) $old['slot_id'] !== (string) $fields['slot_id']
+            || $old['event_date'] !== $fields['event_date'];
+        if ($fields['slot_id'] !== null && $fields['event_date'] !== null && $slotMoves
+            && ($taken = slot_taken_message($pdo, $bookingId, $fields['slot_id'], $fields['event_date'], $user['role'] === 'admin')) !== null) {
+            throw new BookingValidationError(['slot_id' => $taken]);
         }
 
         // An admin setting or changing the vendor: must be an active, approved vendor (shared lock; LOCK IN SHARE MODE works on MySQL 8 and MariaDB, FOR SHARE is MySQL-only).
@@ -686,17 +726,27 @@ function booking_field_diff(array $old, array $new): array
 // Venue warnings (drafts never block; plan Section 9)
 // ---------------------------------------------------------------------------
 
-/** Other non-cancelled bookings on the same venue and date. */
-function venue_clashes(PDO $pdo, ?int $bookingId, ?int $venueId, ?string $eventDate): array
+/**
+ * Other non-cancelled bookings on the same venue and date that compete for the same time: the same
+ * slot, or either booking has no slot (a booking made before slots existed took the whole day).
+ * Bookings in different slots of one venue and date don't clash. $slotId null = the whole day.
+ */
+function venue_clashes(PDO $pdo, ?int $bookingId, ?int $venueId, ?string $eventDate, ?int $slotId = null): array
 {
     if ($venueId === null || $eventDate === null) {
         return [];
     }
+    $params = [$venueId, $eventDate, $bookingId ?? 0];
+    $slotSql = '';
+    if ($slotId !== null) {
+        $slotSql = ' AND (b.slot_id IS NULL OR b.slot_id = ?)';
+        $params[] = $slotId;
+    }
     $st = $pdo->prepare("SELECT b.id, b.unique_id, b.status, v.name AS venue_name
                            FROM bookings b JOIN venues v ON v.id = b.venue_id
-                          WHERE b.venue_id = ? AND b.event_date = ? AND b.status <> 'cancelled' AND b.id <> ?
+                          WHERE b.venue_id = ? AND b.event_date = ? AND b.status <> 'cancelled' AND b.id <> ?$slotSql
                           ORDER BY FIELD(b.status, 'completed', 'confirmed', 'draft'), b.id");
-    $st->execute([$venueId, $eventDate, $bookingId ?? 0]);
+    $st->execute($params);
     return $st->fetchAll();
 }
 
@@ -715,11 +765,12 @@ function venue_clashes(PDO $pdo, ?int $bookingId, ?int $venueId, ?string $eventD
 function calendar_bookings(PDO $pdo, string $monthStart, string $monthEnd): array
 {
     $st = $pdo->prepare("SELECT b.id, b.unique_id, b.revision, b.status, b.vendor_id, b.event_date,
-                                b.client_name, b.firm_name, b.venue_location, b.setup_time, b.start_time,
+                                b.client_name, b.firm_name, b.venue_location, b.start_time,
+                                b.slot_name, b.slot_start, b.slot_end,
                                 COALESCE(v.name, b.venue_other) AS venue
                            FROM bookings b LEFT JOIN venues v ON v.id = b.venue_id
                           WHERE b.event_date BETWEEN ? AND ? AND b.status <> 'cancelled'
-                          ORDER BY b.event_date, FIELD(b.status, 'completed', 'confirmed', 'draft'), b.id");
+                          ORDER BY b.event_date, b.start_time IS NULL, b.start_time, FIELD(b.status, 'completed', 'confirmed', 'draft'), b.id");
     $st->execute([$monthStart, $monthEnd]);
     return $st->fetchAll();
 }
@@ -767,8 +818,8 @@ function venue_clash_messages(array $clashes, ?string $eventDate, bool $isAdmin)
         $who = $isAdmin ? ' (' . $c['unique_id'] . ')' : '';
         $date = date('d M Y', strtotime((string) $eventDate));
         $messages[] = $c['status'] === 'draft'
-            ? "{$c['venue_name']} also has another draft booking on $date$who. Only one booking per venue per day can be confirmed."
-            : "{$c['venue_name']} is already {$c['status']} for another booking on $date$who. This booking can't be confirmed for the same venue and date.";
+            ? "{$c['venue_name']} also has another draft booking at the same time on $date$who. Only one booking per venue and slot can be confirmed."
+            : "{$c['venue_name']} is already {$c['status']} for another booking at the same time on $date$who. This booking can't be confirmed for the same venue, date and slot.";
     }
     return $messages;
 }

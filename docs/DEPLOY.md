@@ -194,6 +194,13 @@ folder's own `.htaccess` sends every request to `public/`.
 Migration `002_venue_location.sql` adds `venues.location` and `bookings.venue_location`. Until it is
 imported, every page that touches a venue will fail, so import it before uploading the PHP files.
 
+Migration `003_venue_slots.sql` adds event slots: the `venue_slots` table (seeded with Morning
+12:00–3:00 PM, Afternoon 4:00–7:00 PM and Evening 8:00 PM–12:00 AM for every existing venue) and the
+slot columns on `bookings`, including the unique key that stops one venue slot being booked twice on
+one date. Import it before uploading the PHP files. Existing bookings are left as they were (no slot,
+their own start time); a confirmed one still holds its whole day. Adjust each venue's slots under
+**Event Slots** afterwards.
+
 ## If something goes wrong
 
 - The site shows "The application is not configured correctly": read `storage/logs/app-YYYY-MM.log`.

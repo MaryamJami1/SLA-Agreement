@@ -48,6 +48,8 @@ require APP_ROOT . '/app/views/layout_top.php';
 <p class="muted">The <strong>location</strong> is where the venue sits inside AO Mess (for example “Ground floor, behind the
   Hall”). It fills in automatically on the booking form and prints on the agreement, invoice and vendor sheet. Unlike the
   name, it can be changed at any time: each booking stores its own copy, so past paperwork never changes.</p>
+<p class="muted">Each venue's bookable time slots (Morning, Evening…) are set on
+  <a href="<?= h(url('admin/slots.php')) ?>">Event Slots</a>. A new venue has none until you add or copy them.</p>
 
 <div class="card pad">
   <h3>VENUES</h3>
