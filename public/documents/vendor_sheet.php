@@ -13,7 +13,7 @@ $d = document_data($pdo, $booking);
 
 $pageTitle = 'Ops sheet ' . $booking['unique_id'];
 $activeTab = '';
-$bodyClass = 'document';
+$bodyClass = 'document doc-sheet-page';
 require APP_ROOT . '/app/views/layout_top.php';
 require APP_ROOT . '/app/views/doc_vendor_sheet.php';
 require APP_ROOT . '/app/views/layout_bottom.php';

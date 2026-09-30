@@ -333,7 +333,7 @@ function recompute_booking_totals(PDO $pdo, int $bookingId): array
     }
 
     $st = $pdo->prepare("SELECT id, unit_snapshot, is_selected, qty, rate, amount
-                           FROM booking_line_items WHERE booking_id = ? AND section = 'charge'");
+                           FROM booking_line_items WHERE booking_id = ?");
     $st->execute([$bookingId]);
     $lines = [];
     $storedAmounts = [];

@@ -45,7 +45,7 @@ FORM=( "client_name=Ayesha Siddiqui" "client_relation=D/o Muhammad Siddiqui" "cl
        "setup_time=16:00" "start_time=19:30" "menu_type=Buffet" "food_items=Mutton Karahi
 Chicken Biryani" "theme=Ivory and gold" "stage=Fabric" "agreement_day=14th" "agreement_month=September, 2026"
        "discount=5000" "refund_pct_30=50" "refund_pct_7=25" "special_commitments=Dedicated event coordinator on site"
-       "waiters=12" "chefs=4" "sofas=2" "chairs=200" "vendor_id=$VENDOR_ID"
+       "vendor_id=$VENDOR_ID"
        "firm_name=Uzair Caterers" "rep_name=Uzair Khan" "rep_contact=0312-2159834"
        "lines[c$VENUE_CHARGE][present]=1" "lines[c$VENUE_CHARGE][selected]=1" "lines[c$VENUE_CHARGE][rate]=50000"
        "lines[c$TRACING][present]=1" "lines[c$TRACING][selected]=1" "lines[c$TRACING][rate]=300" "lines[c$TRACING][qty]=10"
@@ -124,7 +124,6 @@ contains "Operations Sheet" "ops sheet opens"
 contains "No. of PAX" "PAX row (from the reference sheet)"
 contains "Sofa" "ops item listed"
 contains "Internal working copy" "internal note"
-contains "Waiters" "manpower"
 contains "Mutton Karahi" "catering items"
 lacks "42101-1234567-1" "CNIC not printed on the internal ops sheet"
 

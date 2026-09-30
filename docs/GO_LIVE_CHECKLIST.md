@@ -79,13 +79,13 @@ looks right on paper, and that the whole thing behaves for real people.
 ## G. Backups and handover
 
 - [ ] A manual phpMyAdmin export has been taken and downloaded.
-- [ ] Hostinger's automatic backups are on, and AO Mess knows how to restore one.
+- [ ] Hostinger's automatic backups are on, and Booking Organizer knows how to restore one.
 - [ ] `storage/uploads/` is included in whatever backup routine is agreed.
 - [ ] The admin password and the database credentials are stored somewhere safe (not only in email).
-- [ ] AO Mess has been shown: the registry, creating and confirming a booking, recording a payment,
+- [ ] Booking Organizer has been shown: the registry, creating and confirming a booking, recording a payment,
       printing the three documents, and approving a vendor.
 
-## H. Open questions to settle with AO Mess
+## H. Open questions to settle with Booking Organizer
 
 - [ ] Contract wording reviewed (the agreement currently prints "pending legal review").
 - [ ] Charge list and default rates entered in the catalog.

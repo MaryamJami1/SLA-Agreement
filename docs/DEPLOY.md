@@ -42,7 +42,11 @@ Then open **phpMyAdmin** for that database and import, in this order:
 1. `database/schema.sql`
 2. `database/seed.sql`
 
-After importing, the database has 11 tables and one admin account.
+After importing, the database has 11 tables and one admin account. `schema.sql` already contains
+every migration, so a **new** install does not import anything from `database/migrations/`.
+
+Upgrading an existing site is different — see "Applying a schema change later" below. After any
+import, **Checks** tells you whether the database is up to date with the files.
 
 ---
 
@@ -85,7 +89,7 @@ Copy `config/config.sample.php` to `config/config.php` and fill it in:
 'DB_USER'              => 'u123456_aomess',
 'DB_PASS'              => '…the password you noted…',
 'DEVICE_COOKIE_SECRET' => '…64 random characters…',
-'ORG_NAME'             => 'AO Mess / ASK Organizers',
+'ORG_NAME'             => 'Booking Organizer / ASK Organizers',
 'ORG_ADDRESS'          => '…office address for the letterhead…',
 'ORG_PHONE'            => '…',
 'ORG_EMAIL'            => '…',
@@ -128,7 +132,7 @@ Then work through `docs/GO_LIVE_CHECKLIST.md`, which covers what that page canno
 
 As the admin:
 
-- **Venues** — add or rename the venues so they match AO Mess (a venue that has been used by a booking
+- **Venues** — add or rename the venues so they match Booking Organizer (a venue that has been used by a booking
   can only be deactivated, so get the names right before the first booking).
 - **Catalog** — set the default rates for the charges, and add or retire items.
 - **Vendors** — ask each vendor to register from the sign-in page, then approve them.
@@ -138,7 +142,7 @@ As the admin:
 ## Backups
 
 - **Automatic:** hPanel → Files → Backups. Hostinger keeps regular backups; check the schedule matches
-  what AO Mess expects.
+  what Booking Organizer expects.
 - **Before any change to the database:** phpMyAdmin → the database → Export → Quick → Go, and keep the
   `.sql` file. Do this before every migration, without exception.
 - **Files:** the attachments in `storage/uploads/` are not in the database. Include them in any manual
@@ -147,9 +151,16 @@ As the admin:
 ## Applying a schema change later
 
 1. Take a phpMyAdmin export of the live database (above).
-2. Import the new numbered file from `database/migrations/` (for example `002_….sql`).
-3. Upload the changed PHP files.
-4. Open **Checks** again and confirm the schema version has increased.
+2. Find where the database is now: in phpMyAdmin run
+   `SELECT version, applied_at FROM schema_version ORDER BY version;`
+3. Import each numbered file from `database/migrations/` the database does not already list, in
+   order (for example `002_….sql`).
+4. Upload the changed PHP files.
+5. Open **Checks** again. "Schema is up to date" must pass — if it fails, it names the version the
+   files expect, and a migration still needs importing.
+
+Migration `002_venue_location.sql` adds `venues.location` and `bookings.venue_location`. Until it is
+imported, every page that touches a venue will fail, so import it before uploading the PHP files.
 
 ## If something goes wrong
 

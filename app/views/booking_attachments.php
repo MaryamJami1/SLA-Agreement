@@ -95,6 +95,6 @@ $kb = static fn(int $bytes): string => $bytes >= 1048576
     <button type="submit" class="btn primary">Upload</button>
   </form>
 <?php elseif ($viewer['role'] !== 'admin' && $booking['status'] !== 'draft'): ?>
-  <p class="hint">Files can be attached while the booking is a draft. Ask AO Mess to add anything else.</p>
+  <p class="hint">Files can be attached while the booking is a draft. Ask Booking Organizer to add anything else.</p>
 <?php endif; ?>
 </div>

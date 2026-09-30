@@ -33,7 +33,7 @@ return [
     'REQUIRE_SIGNED_COPY_FOR_AMENDMENT' => true,
 
     // Letterhead / document footer (open question 5).
-    'ORG_NAME'    => 'AO Mess / ASK Organizers',
+    'ORG_NAME'    => 'Booking Organizer / ASK Organizers',
     'ORG_ADDRESS' => 'Karachi',
     'ORG_PHONE'   => '',
     'ORG_EMAIL'   => '',

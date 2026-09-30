@@ -51,7 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 audit($pdo, 'vendor_register', $id, null,
                     ['username' => $in['username'], 'firm_name' => $in['firm_name'], 'rep_name' => $in['rep_name'], 'contact' => $in['contact']]);
             });
-            flash('ok', 'Your vendor account has been created and is waiting for approval by AO Mess. You can sign in once it has been approved.');
+            flash('ok', 'Your vendor account has been created and is waiting for approval by Booking Organizer. You can sign in once it has been approved.');
             redirect('auth/login.php');
         } catch (PDOException $e) {
             if ((int) ($e->errorInfo[1] ?? 0) !== 1062) { // 1062 = duplicate key: the username is taken
@@ -69,7 +69,7 @@ require APP_ROOT . '/app/views/layout_top.php';
 <div class="auth-card">
   <img src="<?= h(url('assets/img/logo.png')) ?>" alt="ASK Organizers" class="login-logo">
   <h2>Create a vendor account</h2>
-  <p class="login-sub">AO Mess will review and approve your account before you can sign in.</p>
+  <p class="login-sub">Booking Organizer will review and approve your account before you can sign in.</p>
 
 <?php if ($errors): ?>
   <ul class="errors"><?php foreach ($errors as $e): ?><li><?= h($e) ?></li><?php endforeach; ?></ul>

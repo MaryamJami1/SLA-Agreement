@@ -8,6 +8,7 @@ declare(strict_types=1);
 </main>
 </td></tr>
 </tbody>
+<tfoot><tr><td></td></tr></tfoot>
 </table>
 <?php endif; ?>
 </body>

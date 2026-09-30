@@ -45,9 +45,9 @@ LAWN_A=$($MYSQL -e "SELECT id FROM venues WHERE name='Lawn A'")
 login v uzair Passw0rd-e2e
 login o bilal Passw0rd-e2e
 login a admin Passw0rd-e2e
-csrf v /booking/form.php
-req v POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=Ayesha Siddiqui" "event_date=2027-04-04" \
-  "venue_id=$LAWN_A" "guests=100" "per_head_rate=1000"
+csrf a /booking/form.php
+req a POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=Ayesha Siddiqui" "event_date=2027-04-04" \
+  "venue_id=$LAWN_A" "guests=100" "per_head_rate=1000" "vendor_id=$VENDOR_ID"
 ID=${LOC##*=}
 
 echo "== Upload, download, type and size checks"

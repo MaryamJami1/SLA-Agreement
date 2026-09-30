@@ -56,6 +56,17 @@ $actions = $isAdmin || $canDelete;
       <h4>Confirm</h4>
       <p class="muted">Issues the SLA. Needs an active vendor, client name, event date, venue and a net amount above Rs. 0.
         After confirming, vendors can only view and print it.</p>
+<?php $terms = commercial_terms_notices($booking); if ($terms): ?>
+      <div class="terms-check">
+        <p class="terms-check-head">Check these terms before issuing</p>
+        <ul>
+<?php foreach ($terms as $t): ?>
+          <li><?= h($t) ?></li>
+<?php endforeach; ?>
+        </ul>
+        <p class="hint">These don't stop the confirmation — read them and continue if they are intended.</p>
+      </div>
+<?php endif; ?>
 <?php if ($blocking): ?>
       <p class="field-error">The venue is already <?= h($blocking[0]['status']) ?> for <?= h($blocking[0]['unique_id']) ?> on this date.
         Confirming needs an override reason, which is recorded in the audit log.</p>

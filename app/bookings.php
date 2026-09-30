@@ -37,6 +37,15 @@ const LINE_SECTIONS = [
     'ops_item'        => 'Operations Sheet Items',
 ];
 
+/**
+ * Every section's lines can carry a rate and add to the totals. Only Charges require a rate; a decor
+ * or operations item without one simply carries no money.
+ */
+function section_is_priced(string $section): bool
+{
+    return isset(LINE_SECTIONS[$section]);
+}
+
 /** A booking save failed validation; ->errors maps field => message. */
 class BookingValidationError extends RuntimeException
 {
@@ -51,6 +60,25 @@ class BookingValidationError extends RuntimeException
 
 /** Someone else saved the booking after this form was opened (optimistic lock). */
 class BookingConflict extends RuntimeException {}
+
+/**
+ * Commercial terms and Booking Organizer's own records: field => value used when a vendor creates a booking.
+ *
+ * A vendor may describe the event but not price it or set what happens if it is cancelled, and may
+ * not write Booking Organizer's acknowledgement of receipt. On an existing booking these keep whatever the
+ * admin last saved. Line rates are protected the same way, in parse_booking_lines(): a vendor may
+ * tick a charge or item, but its rate is always Booking Organizer's.
+ */
+const ADMIN_ONLY_FIELDS = [
+    'per_head_rate' => '0.00',
+    'discount'      => '0.00',
+    'due_on'        => 'Event Day',
+    'refund_pct_30' => null,
+    'refund_pct_7'  => null,
+    'received_by'   => null,
+    'received_date' => null,
+    'received_time' => null,
+];
 
 /**
  * Scalar booking columns the form edits: name => [type, max length or options, label].
@@ -96,12 +124,9 @@ function booking_field_specs(): array
         'floor_other'          => ['text', 150, 'Other floor covering'],
         'addl_decor'           => ['longtext', LONG_TEXT_MAX, 'Additional decor'],
         'decor_by'             => ['text', 150, 'Decor by'],
-        'sofas'                => ['count', null, 'Sofas'],
-        'chairs'               => ['count', null, 'Chairs'],
-        'tables_dining'        => ['count', null, 'Dining tables'],
-        'tables_buffet'        => ['count', null, 'Buffet tables'],
-        'waiters'              => ['count', null, 'Waiters'],
-        'chefs'                => ['count', null, 'Chefs'],
+        // Furniture & manpower (sofas, chairs, tables, waiters, chefs) is no longer recorded.
+        // The columns remain in the schema, holding whatever past bookings stored; nothing
+        // reads or writes them now, so an old booking's numbers are neither shown nor lost.
         'per_head_rate'        => ['money', null, 'Per-head rate'],
         'discount'             => ['money', null, 'Discount'],
         'due_on'               => ['select', DUE_ON_TYPES, 'Balance due on'],
@@ -182,7 +207,7 @@ function active_vendors(PDO $pdo): array
 /** Active venues, plus the booking's current venue if it has since been deactivated. */
 function venues_for_form(PDO $pdo, ?int $currentVenueId): array
 {
-    $st = $pdo->prepare('SELECT id, name, is_active FROM venues WHERE is_active = 1 OR id = ? ORDER BY sort_order, name');
+    $st = $pdo->prepare('SELECT id, name, location, is_active FROM venues WHERE is_active = 1 OR id = ? ORDER BY sort_order, name');
     $st->execute([$currentVenueId ?? 0]);
     return $st->fetchAll();
 }
@@ -264,9 +289,7 @@ function parse_booking_input(PDO $pdo, array $post, array $user, ?array $existin
     }
     $fields['agreement_place'] = $fields['agreement_place'] ?? 'Karachi';
     $fields['due_on'] = $fields['due_on'] ?? 'Event Day';
-    foreach (['guests', 'sofas', 'chairs', 'tables_dining', 'tables_buffet', 'waiters', 'chefs'] as $count) {
-        $fields[$count] = $fields[$count] ?? 0;
-    }
+    $fields['guests'] = $fields['guests'] ?? 0;
     foreach (['per_head_rate', 'discount'] as $money) {
         $fields[$money] = $fields[$money] ?? '0.00';
     }
@@ -279,6 +302,7 @@ function parse_booking_input(PDO $pdo, array $post, array $user, ?array $existin
     $venueRaw = is_string($post['venue_id'] ?? null) ? trim($post['venue_id']) : '';
     $fields['venue_id'] = null;
     $fields['venue_other'] = null;
+    $venueDefaultLocation = null;
     if ($venueRaw === 'other') {
         $other = trim((string) ($post['venue_other'] ?? ''));
         if ($other === '') {
@@ -290,7 +314,7 @@ function parse_booking_input(PDO $pdo, array $post, array $user, ?array $existin
         }
     } elseif ($venueRaw !== '') {
         $venueId = ctype_digit($venueRaw) ? (int) $venueRaw : 0;
-        $st = $pdo->prepare('SELECT id, is_active FROM venues WHERE id = ?');
+        $st = $pdo->prepare('SELECT id, location, is_active FROM venues WHERE id = ?');
         $st->execute([$venueId]);
         $venue = $st->fetch();
         $unchanged = $existing !== null && (int) $existing['venue_id'] === $venueId;
@@ -298,7 +322,19 @@ function parse_booking_input(PDO $pdo, array $post, array $user, ?array $existin
             $errors['venue_id'] = 'Venue: choose a venue from the list.';
         } else {
             $fields['venue_id'] = $venueId;
+            $venueDefaultLocation = $venue['location'];
         }
+    }
+
+    // Venue location: the booking keeps its own copy, so later edits to the venue never rewrite old
+    // paperwork. The form pre-fills it from the venue; whatever is submitted wins, and an empty box
+    // falls back to the venue's current location (so it is still right when JavaScript is off).
+    $locationRaw = trim((string) ($post['venue_location'] ?? ''));
+    if (mb_strlen($locationRaw) > 150) {
+        $errors['venue_location'] = 'Venue location: at most 150 characters.';
+        $fields['venue_location'] = null;
+    } else {
+        $fields['venue_location'] = $locationRaw !== '' ? $locationRaw : $venueDefaultLocation;
     }
 
     // Vendor (ownership rules, plan Section 5).
@@ -308,6 +344,14 @@ function parse_booking_input(PDO $pdo, array $post, array $user, ?array $existin
         $fields['firm_name'] = $user['firm_name'];
         $fields['rep_name'] = $user['rep_name'];
         $fields['rep_contact'] = $user['contact'];
+
+        // Booking Organizer sets the money and its own records. A vendor describes the event; it does not
+        // price it, does not write the refund terms, and does not fill in Booking Organizer's receipt.
+        // Enforced here rather than only in the view, so a hand-made POST can't get round it.
+        foreach (ADMIN_ONLY_FIELDS as $field => $default) {
+            $fields[$field] = $existing === null ? $default : $existing[$field];
+            unset($errors[$field]);   // never report an error for a field they cannot set
+        }
     } else {
         $vendorRaw = is_string($post['vendor_id'] ?? null) ? trim($post['vendor_id']) : '';
         $fields['vendor_id'] = $vendorRaw === '' ? null : (ctype_digit($vendorRaw) ? (int) $vendorRaw : -1);
@@ -317,7 +361,7 @@ function parse_booking_input(PDO $pdo, array $post, array $user, ?array $existin
         }
     }
 
-    [$lines, $lineErrors] = parse_booking_lines($post['lines'] ?? [], $formLines);
+    [$lines, $lineErrors] = parse_booking_lines($post['lines'] ?? [], $formLines, $user['role'] === 'admin');
     $errors += $lineErrors;
 
     return ['fields' => $fields, 'lines' => $lines, 'errors' => $errors];
@@ -389,7 +433,7 @@ function parse_booking_value(string $type, $param, string $raw)
  *
  * @return array{0: array, 1: array} [lines keyed like $formLines, errors]
  */
-function parse_booking_lines($posted, array $formLines): array
+function parse_booking_lines($posted, array $formLines, bool $isAdmin = true): array
 {
     $posted = is_array($posted) ? $posted : [];
     $lines = [];
@@ -408,20 +452,29 @@ function parse_booking_lines($posted, array $formLines): array
             $errors["line_$key"] = "$label: notes can be at most 255 characters.";
         }
         try {
-            if ($line['section'] === 'charge') {
-                $ratePaisa = parse_money(is_string($in['rate'] ?? null) ? $in['rate'] : '');
-                $rate = $ratePaisa === null ? null : paisa_to_decimal($ratePaisa);
-                if ($selected && $rate === null) {
+            if (section_is_priced($line['section'])) {
+                $isCharge = $line['section'] === 'charge';
+                if ($isAdmin) {
+                    $ratePaisa = parse_money(is_string($in['rate'] ?? null) ? $in['rate'] : '');
+                    $rate = $ratePaisa === null ? null : paisa_to_decimal($ratePaisa);
+                } else {
+                    // A vendor chooses what the event needs (ticks the line, gives a quantity and a
+                    // note) but never prices it: whatever rate is posted is ignored. The line keeps
+                    // the rate it has, or takes the catalog's current default when it is newly ticked.
+                    $rate = $line['rate'];
+                }
+                // Booking Organizer must price a charge it selects; a decor item without a rate simply carries
+                // no money. A charge a vendor ticks that has no rate yet waits for Booking Organizer to price it.
+                if ($selected && $rate === null && $isCharge && $isAdmin) {
                     throw new InvalidInput('enter a rate for the selected charge.');
                 }
-                if ($line['unit'] === 'per unit') {
+                // Operations items always keep the quantity they show on the vendor sheet.
+                if ($line['unit'] === 'per unit' || $line['section'] === 'ops_item') {
                     $qty = parse_whole_number(is_string($in['qty'] ?? null) ? $in['qty'] : '');
-                    if ($selected && $qty === null) {
+                    if ($selected && $qty === null && $rate !== null && $line['unit'] === 'per unit') {
                         throw new InvalidInput('enter a quantity (0 or more).');
                     }
                 }
-            } elseif ($line['section'] === 'ops_item') {
-                $qty = parse_whole_number(is_string($in['qty'] ?? null) ? $in['qty'] : '');
             }
         } catch (InvalidInput $e) {
             $errors["line_$key"] = "$label: " . $e->getMessage();
@@ -549,7 +602,7 @@ function booking_final_charge_lines(PDO $pdo, ?int $bookingId, array $lines): ar
 {
     $final = [];
     if ($bookingId !== null) {
-        $st = $pdo->prepare("SELECT id, unit_snapshot, is_selected, qty, rate FROM booking_line_items WHERE booking_id = ? AND section = 'charge'");
+        $st = $pdo->prepare("SELECT id, unit_snapshot, is_selected, qty, rate FROM booking_line_items WHERE booking_id = ?");
         $st->execute([$bookingId]);
         foreach ($st->fetchAll() as $row) {
             $final['l' . $row['id']] = ['unit' => $row['unit_snapshot'], 'selected' => (bool) $row['is_selected'],
@@ -557,7 +610,7 @@ function booking_final_charge_lines(PDO $pdo, ?int $bookingId, array $lines): ar
         }
     }
     foreach ($lines as $key => $line) {
-        if ($line['section'] !== 'charge') {
+        if (!section_is_priced($line['section'])) {
             continue;
         }
         $final[$key] = ['unit' => $line['unit'], 'selected' => $line['new']['selected'],
@@ -582,7 +635,7 @@ function write_booking_lines(PDO $pdo, int $bookingId, array $lines): array
             continue;
         }
         $new = $line['new'];
-        $rate = $line['section'] === 'charge' ? $new['rate'] : null;
+        $rate = section_is_priced($line['section']) ? $new['rate'] : null;
         if ($line['line_id'] === null) {
             $insert->execute([$bookingId, $line['catalog_id'], $line['section'], $line['label'], $line['unit'],
                 $new['selected'] ? 1 : 0, $new['qty'], $rate, $new['notes'], $line['sort_order']]);
@@ -601,7 +654,7 @@ function write_booking_lines(PDO $pdo, int $bookingId, array $lines): array
 function booking_line_change(array $line): ?array
 {
     $new = $line['new'];
-    $rate = $line['section'] === 'charge' ? $new['rate'] : null;
+    $rate = section_is_priced($line['section']) ? $new['rate'] : null;
     if ($line['line_id'] === null) {
         return ['added' => $line['label'], 'section' => $line['section'], 'rate' => $rate, 'qty' => $new['qty']];
     }
@@ -642,6 +695,65 @@ function venue_clashes(PDO $pdo, ?int $bookingId, ?int $venueId, ?string $eventD
                           ORDER BY FIELD(b.status, 'completed', 'confirmed', 'draft'), b.id");
     $st->execute([$venueId, $eventDate, $bookingId ?? 0]);
     return $st->fetchAll();
+}
+
+// ---------------------------------------------------------------------------
+// Calendar (plan Section 9: see the month before promising a date)
+// ---------------------------------------------------------------------------
+
+/**
+ * Every booking that occupies a venue in the given month, oldest first.
+ *
+ * Cancelled bookings are left out: they release the slot. Unlike the registry this is NOT scoped to
+ * the signed-in vendor — the whole point is that a vendor can see a date is already taken. What a
+ * vendor may *read* about someone else's booking is limited by calendar_entry_is_own(); the page
+ * shows only the venue and the status for those.
+ */
+function calendar_bookings(PDO $pdo, string $monthStart, string $monthEnd): array
+{
+    $st = $pdo->prepare("SELECT b.id, b.unique_id, b.revision, b.status, b.vendor_id, b.event_date,
+                                b.client_name, b.firm_name, b.venue_location, b.setup_time, b.start_time,
+                                COALESCE(v.name, b.venue_other) AS venue
+                           FROM bookings b LEFT JOIN venues v ON v.id = b.venue_id
+                          WHERE b.event_date BETWEEN ? AND ? AND b.status <> 'cancelled'
+                          ORDER BY b.event_date, FIELD(b.status, 'completed', 'confirmed', 'draft'), b.id");
+    $st->execute([$monthStart, $monthEnd]);
+    return $st->fetchAll();
+}
+
+/** True when this viewer owns the booking (admins own them all) and may see its client details. */
+function calendar_entry_is_own(array $user, array $entry): bool
+{
+    return $user['role'] === 'admin' || (int) $entry['vendor_id'] === (int) $user['id'];
+}
+
+/**
+ * Days booked per venue for the month, for the availability bars.
+ *
+ * Counts distinct days, not bookings: two bookings on one venue on one day is a clash, not two days
+ * of use. Free-text ("Other") venues are left out — they aren't real venues and can't be tracked.
+ *
+ * @return list<array{venue: string, days: int, free: int}>
+ */
+function venue_availability(PDO $pdo, array $entries, int $daysInMonth): array
+{
+    $bookedDays = [];
+    foreach ($entries as $e) {
+        if ($e['venue'] !== null && $e['venue'] !== '') {
+            $bookedDays[$e['venue']][$e['event_date']] = true;
+        }
+    }
+    $rows = [];
+    foreach ($pdo->query('SELECT name FROM venues WHERE is_active = 1 ORDER BY sort_order, name')->fetchAll() as $v) {
+        $days = count($bookedDays[$v['name']] ?? []);
+        $rows[] = ['venue' => $v['name'], 'days' => $days, 'free' => max(0, $daysInMonth - $days)];
+        unset($bookedDays[$v['name']]);
+    }
+    // A venue that was deactivated mid-month still has bookings worth showing.
+    foreach ($bookedDays as $name => $days) {
+        $rows[] = ['venue' => $name, 'days' => count($days), 'free' => max(0, $daysInMonth - count($days))];
+    }
+    return $rows;
 }
 
 /** Warning text for clashes. Vendors aren't shown other vendors' SLA numbers. */

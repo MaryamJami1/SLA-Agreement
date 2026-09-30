@@ -6,7 +6,12 @@ $rev = (int) $booking['revision'];
 $number = format_document_number($booking['unique_id'], 'SLA', $rev);
 $watermark = document_watermark($booking);
 $guests = (int) $booking['guests'];
-$staff = (int) $booking['waiters'] + (int) $booking['chefs'];
+$decorSections = array_intersect_key($d['lines'], array_flip(['decor_general', 'decor_light', 'decor_generator', 'decor_flower', 'decor_extra']));
+$decorRows = 3 + ($booking['stage_desc'] ? 1 : 0) + ($booking['addl_decor'] ? 1 : 0);
+$chargeRows = decimal_to_paisa($booking['discount']) > 0 ? 4 : 3;
+/* On paper the sheet is enlarged to suit how much it holds, and its tables share out whatever
+   height is left, so a short agreement fills the page as a long one does. */
+$zoom = agreement_print_zoom($booking, $decorSections);
 ?>
 <div class="doc-toolbar">
   <button type="button" class="btn primary" id="print-btn">Print / Save as PDF</button>
@@ -15,7 +20,7 @@ $staff = (int) $booking['waiters'] + (int) $booking['chefs'];
   <a class="btn" href="<?= h(url('documents/vendor_sheet.php?id=' . (int) $booking['id'])) ?>">Ops sheet</a>
 </div>
 
-<div class="doc card">
+<div class="doc card" style="--z:<?= h($zoom) ?>">
 <?php if ($watermark): ?>
   <div class="watermark"><?= h($watermark) ?></div>
 <?php endif; ?>
@@ -45,7 +50,7 @@ $staff = (int) $booking['waiters'] + (int) $booking['chefs'];
 
   <div class="doc-parties">
     <div class="doc-box">
-      <h4>Vendor (Service Provider — AO Mess empaneled)</h4>
+      <h4>Vendor (Service Provider — Booking Organizer empaneled)</h4>
       <p><strong><?= h(dv($booking['firm_name'])) ?></strong></p>
       <p>Representative: <?= h(dv($booking['rep_name'])) ?></p>
       <p>Contact: <?= h(dv($booking['rep_contact'])) ?></p>
@@ -61,12 +66,12 @@ $staff = (int) $booking['waiters'] + (int) $booking['chefs'];
     </div>
   </div>
 
-  <section class="doc-block">
+  <section class="doc-block" style="flex-grow:4">
     <h3>1. Event</h3>
     <table class="doc-table kv">
       <tr><th>Type of event</th><td><?= h(dchoice($booking, 'event_type', 'event_type_other')) ?></td>
           <th>Date</th><td><?= h(ddate($booking['event_date'])) ?><?= $d['event_day'] ? ' (' . h($d['event_day']) . ')' : '' ?></td></tr>
-      <tr><th>Venue</th><td><?= h(dv($d['venue'])) ?></td>
+      <tr><th>Venue</th><td><?= h(dvenue($d)) ?></td>
           <th>Alternate date</th><td><?= h(ddate($booking['alt_date'])) ?></td></tr>
       <tr><th>Setup ready by</th><td><?= h(dtime($booking['setup_time'])) ?></td>
           <th>Event starts</th><td><?= h(dtime($booking['start_time'])) ?></td></tr>
@@ -75,19 +80,19 @@ $staff = (int) $booking['waiters'] + (int) $booking['chefs'];
     </table>
   </section>
 
-  <section class="doc-block">
+  <section class="doc-block" style="flex-grow:<?= $booking['food_items'] ? 2 : 1 ?>">
     <h3>2. Catering</h3>
-    <table class="doc-table kv">
-      <tr><th>Menu type</th><td colspan="3"><?= h(dchoice($booking, 'menu_type', 'menu_type_other')) ?></td></tr>
+    <table class="doc-table kv doc-items">
+      <tr><th>Menu type</th><td><?= h(dchoice($booking, 'menu_type', 'menu_type_other')) ?></td></tr>
 <?php if ($booking['food_items']): ?>
-      <tr><th>Food items</th><td colspan="3"><?= nl2br(h($booking['food_items'])) ?></td></tr>
+      <tr><th>Food items</th><td><?= nl2br(h($booking['food_items'])) ?></td></tr>
 <?php endif; ?>
     </table>
   </section>
 
-  <section class="doc-block">
+  <section class="doc-block" style="flex-grow:<?= $decorRows + count($decorSections) ?>">
     <h3>3. Decoration &amp; setup standards</h3>
-    <table class="doc-table kv">
+    <table class="doc-table kv" style="flex-grow:<?= $decorRows ?>">
       <tr><th>Theme / colours</th><td><?= h(dv($booking['theme'])) ?></td>
           <th>Decor by</th><td><?= h(dv($booking['decor_by'])) ?></td></tr>
       <tr><th>Stage</th><td><?= h(dchoice($booking, 'stage', 'stage_other')) ?></td>
@@ -102,62 +107,37 @@ $staff = (int) $booking['waiters'] + (int) $booking['chefs'];
 <?php endif; ?>
     </table>
 
-<?php $decorSections = array_intersect_key($d['lines'], array_flip(['decor_general', 'decor_light', 'decor_generator', 'decor_flower', 'decor_extra'])); ?>
 <?php if ($decorSections): ?>
     <h4 class="doc-sub">Included decor items</h4>
-    <div class="doc-checklist">
+    <table class="doc-table kv doc-items" style="flex-grow:<?= count($decorSections) ?>">
 <?php foreach ($decorSections as $section => $items): ?>
-      <div>
-        <strong><?= h(LINE_SECTIONS[$section]) ?></strong>
-        <ul>
-<?php foreach ($items as $item): ?>
-          <li><?= h($item['label']) ?><?= $item['notes'] ? ' — ' . h($item['notes']) : '' ?></li>
+      <tr><th><?= h(LINE_SECTIONS[$section]) ?></th>
+          <td><?= implode(', ', array_map(static fn($item) => h($item['label']) . ($item['notes'] ? ' (' . h($item['notes']) . ')' : ''), $items)) ?></td></tr>
 <?php endforeach; ?>
-        </ul>
-      </div>
-<?php endforeach; ?>
-    </div>
+    </table>
 <?php endif; ?>
   </section>
 
-  <section class="doc-block">
-    <h3>4. Furniture &amp; manpower</h3>
-    <table class="doc-table kv">
-      <tr><th>Sofas</th><td><?= (int) $booking['sofas'] ?></td><th>Chairs</th><td><?= (int) $booking['chairs'] ?></td></tr>
-      <tr><th>Dining tables</th><td><?= (int) $booking['tables_dining'] ?></td><th>Buffet tables</th><td><?= (int) $booking['tables_buffet'] ?></td></tr>
-      <tr><th>Waiters</th><td><?= (int) $booking['waiters'] ?></td><th>Chefs</th><td><?= (int) $booking['chefs'] ?></td></tr>
-      <tr><th>Total staff on site</th><td colspan="3"><?= $staff ?></td></tr>
-    </table>
-  </section>
-
-  <section class="doc-block">
-    <h3>5. Charges</h3>
+  <section class="doc-block" style="flex-grow:<?= $chargeRows ?>">
+    <h3>4. Charges</h3>
     <table class="doc-table money">
-      <thead><tr><th>Description</th><th class="num">Rate</th><th class="num">Qty</th><th class="num">Amount</th></tr></thead>
+      <thead><tr><th>Description</th><th class="num">Amount</th></tr></thead>
       <tbody>
-        <tr><td>Catering per guest</td><td class="num"><?= h(rs($booking['per_head_rate'])) ?></td>
-            <td class="num"><?= $guests ?></td><td class="num"><?= h(rs($booking['guest_charges'])) ?></td></tr>
-<?php foreach ($d['charges'] as $line): ?>
-        <tr><td><?= h($line['label']) ?><?= $line['notes'] ? ' <span class="doc-note">(' . h($line['notes']) . ')</span>' : '' ?></td>
-            <td class="num"><?= h(rs($line['rate'])) ?></td>
-            <td class="num"><?= $line['unit_snapshot'] === 'per unit' ? (int) $line['qty'] : ($line['unit_snapshot'] === 'per head' ? $guests : '—') ?></td>
-            <td class="num"><?= h(rs($line['amount'])) ?></td></tr>
-<?php endforeach; ?>
+        <tr><td>Catering, decoration &amp; event management services</td><td class="num"><?= h(rs($booking['sub_total'])) ?></td></tr>
       </tbody>
       <tfoot>
-        <tr><td colspan="3">Sub total</td><td class="num"><?= h(rs($booking['sub_total'])) ?></td></tr>
 <?php if (decimal_to_paisa($booking['discount']) > 0): ?>
-        <tr><td colspan="3">Discount</td><td class="num">− <?= h(rs($booking['discount'])) ?></td></tr>
+        <tr><td>Discount</td><td class="num">− <?= h(rs($booking['discount'])) ?></td></tr>
 <?php endif; ?>
-        <tr class="grand"><td colspan="3">Net amount payable</td><td class="num"><?= h(rs($booking['grand_total'])) ?></td></tr>
+        <tr class="grand"><td>Net amount payable</td><td class="num"><?= h(rs($booking['grand_total'])) ?></td></tr>
       </tfoot>
     </table>
-    <p class="doc-words"><strong>Net amount in words:</strong> <?= h(amount_in_words(decimal_to_paisa($booking['grand_total']))) ?></p>
-    <p>Balance due on: <strong><?= h($booking['due_on']) ?></strong>.</p>
+    <p class="doc-words"><strong>Net amount in words:</strong> <?= h(amount_in_words(decimal_to_paisa($booking['grand_total']))) ?>
+      <span class="doc-due">Balance due on: <strong><?= h($booking['due_on']) ?></strong>.</span></p>
   </section>
 
   <section class="doc-block">
-    <h3>6. Cancellation &amp; refund policy</h3>
+    <h3>5. Cancellation &amp; refund policy</h3>
     <ul class="doc-list">
       <li>Cancelled more than 30 days before the event: <strong><?= $booking['refund_pct_30'] !== null ? h(rtrim(rtrim($booking['refund_pct_30'], '0'), '.')) . '%' : '____' ?></strong> of the amount paid is refunded.</li>
       <li>Cancelled 7–30 days before the event: <strong><?= $booking['refund_pct_7'] !== null ? h(rtrim(rtrim($booking['refund_pct_7'], '0'), '.')) . '%' : '____' ?></strong> of the amount paid is refunded.</li>
@@ -170,12 +150,12 @@ $staff = (int) $booking['waiters'] + (int) $booking['chefs'];
 
 <?php if ($booking['special_commitments']): ?>
   <section class="doc-block">
-    <h3>7. Special commitments by the Vendor</h3>
+    <h3>6. Special commitments by the Vendor</h3>
     <p><?= nl2br(h($booking['special_commitments'])) ?></p>
   </section>
 <?php endif; ?>
 
-  <p class="doc-review">Clause wording is pending legal review by AO Mess.</p>
+  <p class="doc-review">Clause wording is pending legal review by Booking Organizer.</p>
 
   <div class="doc-signs">
     <div>
@@ -191,7 +171,7 @@ $staff = (int) $booking['waiters'] + (int) $booking['chefs'];
   </div>
 
   <table class="doc-table kv doc-received">
-    <tr><th>Received by (AO Mess)</th><td><?= h(dv($booking['received_by'])) ?></td>
+    <tr><th>Received by (Booking Organizer)</th><td><?= h(dv($booking['received_by'])) ?></td>
         <th>Date</th><td><?= h(ddate($booking['received_date'])) ?></td>
         <th>Time</th><td><?= h(dtime($booking['received_time'])) ?></td></tr>
   </table>

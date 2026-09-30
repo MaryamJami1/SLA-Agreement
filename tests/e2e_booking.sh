@@ -28,17 +28,21 @@ $MYSQL -e "UPDATE users SET password_hash='$HASH', must_change_password=0 WHERE 
   INSERT INTO users (username,password_hash,role,name,firm_name,rep_name,contact,status) VALUES
   ('uzair','$HASH','vendor','Uzair Khan','Uzair Caterers','Uzair Khan','0312-2159834','active'),
   ('bilal','$HASH','vendor','Bilal Ahmed','Bilal Events','Bilal Ahmed','0300-1111111','active');"
+VENDOR_ID=$($MYSQL -e "SELECT id FROM users WHERE username='uzair'")
 LAWN_A=$($MYSQL -e "SELECT id FROM venues WHERE name='Lawn A'")
 VENUE_CHARGE=$($MYSQL -e "SELECT id FROM item_catalog WHERE name='Venue Charges'")
 TRACING=$($MYSQL -e "SELECT id FROM item_catalog WHERE section='charge' AND unit='per unit' LIMIT 1")
 LED=$($MYSQL -e "SELECT id FROM item_catalog WHERE name='LED'")
 
-echo "== Create (vendor)"
+echo "== Create"
 login v uzair Passw0rd-e2e
+login a admin Passw0rd-e2e
 csrf v /booking/form.php
 contains "assigned on first save" "new form has no SLA number yet"
 contains "Uzair Caterers" "vendor snapshot pre-filled from the profile"
-req v POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=Ayesha Siddiqui" "client_cnic=4210112345671" \
+csrf a /booking/form.php
+req a POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=Ayesha Siddiqui" "client_cnic=4210112345671" \
+  "vendor_id=$VENDOR_ID" \
   "event_type=Valima" "event_date=2026-12-20" "venue_id=$LAWN_A" "guests=200" "per_head_rate=1,500" "discount=5000" \
   "lines[c$VENUE_CHARGE][present]=1" "lines[c$VENUE_CHARGE][selected]=1" "lines[c$VENUE_CHARGE][rate]=50,000" \
   "lines[c$TRACING][present]=1" "lines[c$TRACING][selected]=1" "lines[c$TRACING][rate]=300" "lines[c$TRACING][qty]=10" \
@@ -46,7 +50,7 @@ req v POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=Ayesha
 case "$LOC" in /booking/form.php\?id=*) ok "save redirects to the saved booking (Post/Redirect/Get)";; *) bad "PRG redirect" "[$CODE $LOC]";; esac
 ID=${LOC##*=}
 YEAR=$(date +%Y)
-req v GET "/booking/form.php?id=$ID"
+req a GET "/booking/form.php?id=$ID"
 contains "Booking created: SLA-$YEAR-0001" "first booking is SLA-$YEAR-0001"
 contains "ID: SLA-$YEAR-0001" "reopened booking shows its SLA number"
 contains 'value="Ayesha Siddiqui"' "reopened booking shows the client"
@@ -73,7 +77,8 @@ DB=$($MYSQL -e "SELECT CONCAT(client_name,'|',guests,'|',version) FROM bookings 
 expect "$DB" "Ayesha Siddiqui|250|2" "stale save changed nothing"
 
 echo "== Validation keeps the input"
-req v POST /booking/save.php "_csrf=$TAB1" "id=$ID" "version=2" "client_name=Ayesha Siddiqui" "guests=-5" "per_head_rate=abc" "event_date=2026-02-30"
+csrf a "/booking/form.php?id=$ID"
+req a POST /booking/save.php "_csrf=$TOKEN" "id=$ID" "version=2" "client_name=Ayesha Siddiqui" "vendor_id=$VENDOR_ID" "guests=-5" "per_head_rate=abc" "event_date=2026-02-30"
 expect "$CODE" "422" "invalid values rejected"
 contains "Estimated guests: Enter a whole number" "guests error shown"
 contains "Per-head rate: Enter an amount" "rate error shown"

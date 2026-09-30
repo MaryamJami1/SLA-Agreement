@@ -331,14 +331,14 @@ $formLines = [
     'l1' => ['present' => '1', 'rate' => '6,000', 'notes' => ' ok '],          // unticked existing line: kept, unselected
     'c2' => ['present' => '1', 'selected' => '1', 'rate' => '300', 'qty' => '4'],
     'c3' => ['present' => '1', 'rate' => '999'],                                // unticked catalog item: not stored
-    'c4' => ['present' => '1', 'selected' => '1', 'qty' => '2', 'rate' => '50'], // ops: rate ignored
+    'c4' => ['present' => '1', 'selected' => '1', 'qty' => '2', 'rate' => '50'], // ops: priced like the rest
     'l99' => ['present' => '1', 'selected' => '1', 'rate' => '1'],              // not on this form: ignored
 ], $formLines);
 check('line errors none', $pe, []);
 check('lines kept', array_keys($pl), ['l1', 'c2', 'c4']);
 check('existing line unselected with new rate', $pl['l1']['new'], ['selected' => false, 'rate' => '6000.00', 'qty' => null, 'notes' => 'ok']);
 check('per-unit charge qty', $pl['c2']['new'], ['selected' => true, 'rate' => '300.00', 'qty' => 4, 'notes' => null]);
-check('ops item has qty, no rate', [$pl['c4']['new']['qty'], $pl['c4']['new']['rate']], [2, null]);
+check('ops item keeps qty and the admin rate', [$pl['c4']['new']['qty'], $pl['c4']['new']['rate']], [2, '50.00']);
 check('section/label come from the form lines, not the POST', [$pl['c2']['section'], $pl['c2']['label']], ['charge', 'Tracing']);
 [, $pe] = parse_booking_lines(['c2' => ['present' => '1', 'selected' => '1', 'rate' => '', 'qty' => '1']], $formLines);
 check('selected charge needs a rate', array_keys($pe), ['line_c2']);
@@ -348,6 +348,21 @@ check('selected per-unit charge needs a qty', array_keys($pe), ['line_c2']);
 check('negative rate rejected', array_keys($pe), ['line_l1']);
 [$pl] = parse_booking_lines([], $formLines);
 check('no posted lines → no changes', $pl, []);
+// A vendor ticks what the event needs but never sets a rate: the posted rate is ignored.
+[$pl, $pe] = parse_booking_lines([
+    'l1' => ['present' => '1', 'selected' => '1', 'rate' => '1', 'notes' => 'needed'],
+    'c2' => ['present' => '1', 'selected' => '1', 'rate' => '1', 'qty' => '4'],
+    'c3' => ['present' => '1', 'selected' => '1', 'rate' => '999'],
+], $formLines, false);
+check('vendor line errors none', $pe, []);
+check('vendor keeps the stored rate on an existing charge', $pl['l1']['new'], ['selected' => true, 'rate' => '5000.00', 'qty' => null, 'notes' => 'needed']);
+check('vendor-ticked charge takes the catalog rate', $pl['c2']['new'], ['selected' => true, 'rate' => '300.00', 'qty' => 4, 'notes' => null]);
+check('vendor cannot price a decor item', $pl['c3']['new']['rate'], null);
+$unpriced = ['c5' => ['key' => 'c5', 'line_id' => null, 'catalog_id' => 5, 'section' => 'charge', 'label' => 'Service', 'unit' => 'fixed', 'selected' => false, 'qty' => null, 'rate' => null, 'notes' => null, 'sort_order' => 3]];
+[$pl, $pe] = parse_booking_lines(['c5' => ['present' => '1', 'selected' => '1', 'rate' => '900']], $unpriced, false);
+check('vendor may tick a charge that has no rate yet', [$pe, $pl['c5']['new']['rate']], [[], null]);
+[, $pe] = parse_booking_lines(['c5' => ['present' => '1', 'selected' => '1', 'rate' => '']], $unpriced, true);
+check('admin must price that charge', array_keys($pe), ['line_c5']);
 
 check('field diff', booking_field_diff(['guests' => 250, 'discount' => '0.00', 'theme' => null, 'setup_time' => '18:00:00'],
     ['guests' => 300, 'discount' => '0.00', 'theme' => null, 'setup_time' => '18:00:00']), ['guests' => [250, 300]]);
@@ -423,7 +438,7 @@ check('invoice description', invoice_description($bk, 'Lawn A'),
     'Catering, decoration & event management services — Valima (Mixed grill menu) at Lawn A on 20 Dec 2026.');
 check('invoice description without a venue or date',
     invoice_description(['event_type' => null, 'event_type_other' => null, 'menu_type' => null, 'menu_type_other' => null, 'event_date' => null], null),
-    'Catering, decoration & event management services — event at AO Mess.');
+    'Catering, decoration & event management services — event at Booking Organizer.');
 check('agreement number keeps Rev', format_document_number('SLA-2026-0007', 'SLA', 2), 'SLA-2026-0007 Rev 2');
 check('invoice number keeps Rev', format_document_number('SLA-2026-0007', 'INV', 2), 'INV-2026-0007 Rev 2');
 

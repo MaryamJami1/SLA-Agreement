@@ -59,7 +59,7 @@ expect "$CODE $LOC" "303 /auth/login.php" "vendor registration accepted"
 csrf v /auth/login.php; contains "waiting for approval" "registration message shown"
 req v POST /auth/login.php "_csrf=$TOKEN" "username=uzair.k" "password=VendorPass-01"
 expect "$CODE" "200" "pending vendor stays on the sign-in page"
-contains "waiting for approval by AO Mess" "pending vendor told to wait for approval"
+contains "waiting for approval by Booking Organizer" "pending vendor told to wait for approval"
 csrf v2 /auth/register.php
 req v2 POST /auth/register.php "_csrf=$TOKEN" "firm_name=X" "rep_name=Y" "contact=1" "username=uzair.k" "password=OtherPass-01" "password_confirm=OtherPass-01"
 contains "already taken" "duplicate username rejected"

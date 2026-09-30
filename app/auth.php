@@ -132,7 +132,7 @@ function load_current_user(PDO $pdo): ?array
     $user = $st->fetch() ?: null;
     if ($user === null || $user['status'] !== 'active') {
         end_login_session();
-        flash('error', 'Your account is no longer active. Contact AO Mess if you think this is a mistake.');
+        flash('error', 'Your account is no longer active. Contact Booking Organizer if you think this is a mistake.');
         return null;
     }
     $GLOBALS['CURRENT_USER'] = $user;
@@ -382,8 +382,8 @@ function attempt_login(PDO $pdo, string $rawUsername, string $password, string $
     if ($user['status'] !== 'active') {
         audit($pdo, 'login_fail', (int) $user['id'], null, ['username' => $username, 'reason' => 'account ' . $user['status']]);
         return ['user' => null, 'error' => $user['status'] === 'pending'
-            ? 'Your account is waiting for approval by AO Mess. You can sign in once it has been approved.'
-            : 'This account has been disabled. Contact AO Mess if you think this is a mistake.'];
+            ? 'Your account is waiting for approval by Booking Organizer. You can sign in once it has been approved.'
+            : 'This account has been disabled. Contact Booking Organizer if you think this is a mistake.'];
     }
 
     record_login_attempt($pdo, $username, $ip, true);

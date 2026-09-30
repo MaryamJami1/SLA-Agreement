@@ -1,4 +1,4 @@
--- AO Mess Event Booking & SLA System — initial data. Import after schema.sql.
+-- Booking Organizer Event Booking & SLA System — initial data. Import after schema.sql.
 --
 -- Default admin login:  username  admin
 --                       password  ChangeMe-2026
@@ -11,17 +11,18 @@ SET time_zone = '+05:00';
 -- Default admin
 -- ---------------------------------------------------------------------------
 INSERT INTO users (username, password_hash, role, name, status, must_change_password) VALUES
-('admin', '$2y$10$5LL8yFENyEb/6tVeDuF5BeCX/.Jga2UpYNTr4XLEa3leyZzV5yNb6', 'admin', 'AO Mess Administrator', 'active', 1);
+('admin', '$2y$10$5LL8yFENyEb/6tVeDuF5BeCX/.Jga2UpYNTr4XLEa3leyZzV5yNb6', 'admin', 'Booking Organizer Administrator', 'active', 1);
 
 -- ---------------------------------------------------------------------------
 -- Venues (open question 3: default list; the admin manages it)
 -- ---------------------------------------------------------------------------
-INSERT INTO venues (name, is_active, sort_order) VALUES
-('Lawn A',    1, 10),
-('Lawn B',    1, 20),
-('Lawn C',    1, 30),
-('Pool side', 1, 40),
-('Hall',      1, 50);
+-- Locations are left blank on purpose: the admin fills in the real ones on the Venues page.
+INSERT INTO venues (name, location, is_active, sort_order) VALUES
+('Lawn A',    NULL, 1, 10),
+('Lawn B',    NULL, 1, 20),
+('Lawn C',    NULL, 1, 30),
+('Pool side', NULL, 1, 40),
+('Hall',      NULL, 1, 50);
 
 -- ---------------------------------------------------------------------------
 -- Charge catalog — neutral names, no default rates (open question 2: the admin fills them in).

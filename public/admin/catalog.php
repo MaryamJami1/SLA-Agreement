@@ -37,12 +37,12 @@ require APP_ROOT . '/app/views/layout_top.php';
   <span class="muted"><?= $total ?> item(s)</span>
 </div>
 <p class="muted">These items fill the booking form. Bookings copy the label, unit and rate when a line is added, so renaming
-  an item, changing its rate or unit, or retiring it never changes a booking that already exists — including old invoices.
+  an item, changing its rate or unit, or retiring it never changes a booking that already exists including old invoices.
   Items are retired (unticked “Offered”), never deleted.</p>
 
 <?php foreach (LINE_SECTIONS as $section => $label): $items = $sections[$section] ?? []; ?>
 <div class="card pad">
-  <h3><?= h(strtoupper($label)) ?><?= $section === 'charge' ? ' — the only section that carries money' : '' ?></h3>
+  <h3><?= h(strtoupper($label)) ?></h3>
 <?php if (!$items): ?>
   <p class="muted">Nothing in this section yet.</p>
 <?php endif; ?>
@@ -61,7 +61,7 @@ require APP_ROOT . '/app/views/layout_top.php';
       </select></div>
     <div class="field narrow"><label for="r<?= (int) $item['id'] ?>">Default rate</label>
       <input type="text" id="r<?= (int) $item['id'] ?>" name="default_rate" inputmode="decimal"
-             value="<?= $item['default_rate'] === null ? '' : h($item['default_rate']) ?>"<?= $section === 'charge' ? '' : ' disabled' ?>></div>
+             value="<?= $item['default_rate'] === null ? '' : h($item['default_rate']) ?>"></div>
     <div class="field narrow"><label for="s<?= (int) $item['id'] ?>">Order</label>
       <input type="text" id="s<?= (int) $item['id'] ?>" name="sort_order" inputmode="numeric" value="<?= (int) $item['sort_order'] ?>"></div>
     <label class="check"><input type="checkbox" name="is_active" value="1"<?= (int) $item['is_active'] ? ' checked' : '' ?>> Offered</label>

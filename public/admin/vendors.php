@@ -1,49 +1,15 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/../../app/bootstrap.php';
+require_once APP_ROOT . '/app/admin_data.php';
 
 $admin = require_admin();
 $pdo = db();
 
-// Allowed status changes: action => [statuses it can start from, new status, audit action]
-$transitions = [
-    'approve' => [['pending', 'disabled'], 'active', 'vendor_approve'],
-    'disable' => [['pending', 'active'], 'disabled', 'vendor_disable'],
-];
+$transitions = VENDOR_TRANSITIONS;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $vendorId = (int) ($_POST['vendor_id'] ?? 0);
-    $action = (string) ($_POST['action'] ?? '');
-
-    $message = db_transaction(static function (PDO $pdo) use ($vendorId, $action, $transitions, $admin) {
-        $st = $pdo->prepare("SELECT id, username, status FROM users WHERE id = ? AND role = 'vendor' FOR UPDATE");
-        $st->execute([$vendorId]);
-        $vendor = $st->fetch();
-        if (!$vendor) {
-            return ['error', 'That vendor account no longer exists.'];
-        }
-
-        if (isset($transitions[$action])) {
-            [$from, $to, $auditAction] = $transitions[$action];
-            if (!in_array($vendor['status'], $from, true)) {
-                return ['error', "“{$vendor['username']}” is {$vendor['status']}; that action doesn't apply."];
-            }
-            $pdo->prepare('UPDATE users SET status = ? WHERE id = ?')->execute([$to, $vendorId]);
-            audit($pdo, $auditAction, (int) $admin['id'], null,
-                ['vendor_id' => $vendorId, 'username' => $vendor['username'], 'status' => [$vendor['status'], $to]]);
-            return ['ok', "“{$vendor['username']}” is now $to."];
-        }
-
-        if ($action === 'reset') {
-            $temp = generate_temp_password();
-            $pdo->prepare('UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?')
-                ->execute([password_hash($temp, PASSWORD_DEFAULT), $vendorId]);
-            audit($pdo, 'password_reset', (int) $admin['id'], null, ['vendor_id' => $vendorId, 'username' => $vendor['username']]);
-            return ['ok', "Password reset for “{$vendor['username']}”.", ['username' => $vendor['username'], 'password' => $temp]];
-        }
-
-        return ['error', 'Unknown action.'];
-    });
+    $message = apply_vendor_action($pdo, $admin, (int) ($_POST['vendor_id'] ?? 0), (string) ($_POST['action'] ?? ''));
     flash($message[0], $message[1]);
     if (isset($message[2])) {
         // Committed: show the temporary password to the admin once. Never logged or put in a URL.

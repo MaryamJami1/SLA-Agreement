@@ -1,4 +1,4 @@
-# AO Mess Event Booking & SLA System (PHP + MySQL, Hostinger)
+# Booking Organizer Event Booking & SLA System (PHP + MySQL, Hostinger)
 
 > Status: **Rev 6 (final) — BUILT**. This is the specification the code follows; the revision notes below record how it got here.
 > Rev 5: bootstrap path by folder depth, refunds on cancelled bookings only, one booking per venue per day, refund cap.
@@ -14,12 +14,12 @@
 
 ## 1. Context
 
-AO Mess / ASK Organizers (event planning & catering coordination, Karachi) has no working booking system. What exists:
+Booking Organizer / ASK Organizers (event planning & catering coordination, Karachi) has no working booking system. What exists:
 
 - Two HTML mockups (`refrences-files/sla_form_system (16).html`, `(21).html`): the approved look (vintage ledger style) and structure: SLA form, records list, customer invoice, login. They save through a fake `window.storage` API, so nothing actually persists.
 - Three documents from a **different business** (a vendor at "PIA Planetarium", co-branded CAA / Airport Hotel): an MS-Access-style entry screen, a printed customer invoice, and an operations/inventory sheet. They are **structural inspiration only**: itemized charges, decor checklist, ops sheet, payment breakdown. Their venue-specific charge names (CAA Charges, PSF Tax, Coldring 85/Person, Bridge Charges) are not carried over.
 
-Goal: a real PHP + MySQL web app on Hostinger shared hosting where AO Mess admins and approved vendors register bookings, print the legal SLA agreement, print customer invoices and ops sheets, and record payments. It needs real persistence, real authentication, and a money model that holds up to audit.
+Goal: a real PHP + MySQL web app on Hostinger shared hosting where Booking Organizer admins and approved vendors register bookings, print the legal SLA agreement, print customer invoices and ops sheets, and record payments. It needs real persistence, real authentication, and a money model that holds up to audit.
 
 ## 2. Decisions
 
@@ -27,7 +27,7 @@ Goal: a real PHP + MySQL web app on Hostinger shared hosting where AO Mess admin
 |---|---|
 | Scope | Booking form, registry, SLA Agreement, Customer Invoice, vendor ops sheet, payments, attachments |
 | Stack | Procedural PHP 8.1+ with PDO, no framework, no Composer at runtime; MySQL 8 or MariaDB 10.4+ |
-| Style / branding | Vintage ledger design from the mockups; AO Mess / ASK Organizers branding |
+| Style / branding | Vintage ledger design from the mockups; Booking Organizer / ASK Organizers branding |
 | Charges | Admin-managed catalog with neutral, renameable labels; each booking stores a **snapshot** of the label and rate |
 | Payments | **Multiple payments per booking** (installments + refunds); payments are never edited or deleted, only voided |
 | Vendor signup | Self-registration creates a `pending` account; admin approval required |
@@ -141,7 +141,7 @@ One row per booking/agreement.
 - **Money totals** (denormalized for listing and reporting, recomputed by the server on every save and payment change): `guest_charges`, `charges_total`, `sub_total`, `grand_total`, `paid_total`, `balance`.
 - **Terms:** `due_on` ('Event Day' / 'As agreed'), `refund_pct_30`, `refund_pct_7`, `special_commitments` TEXT.
 - **Signatures:** `vendor_sign_name`, `vendor_sign_date`, `client_sign_name`, `client_sign_date`.
-- **AO Mess record:** `received_by`, `received_date`, `received_time`.
+- **Booking Organizer record:** `received_by`, `received_date`, `received_time`.
 
 **Ownership rules** (the mockup overwrote the owner on every save, so a vendor lost access to their own record once an admin re-saved it):
 - `created_by` is written once, on the first INSERT, and is never part of any UPDATE.
@@ -194,7 +194,7 @@ balance       = grand_total − paid_total                    (can go negative, 
 ```
 
 - Discount can't exceed `sub_total` (see "Server-side numeric validation" below).
-- On a cancelled booking, the refund is recorded as a `refund` payment, so `paid_total` shows what AO Mess actually kept. The contract `grand_total` stays stored unchanged for the record, but `balance` is forced to 0 (by `money.php`, on cancellation and on every later payment write), so a cancelled booking never shows the client as owing the rest of the contract. Lists and documents label `paid_total` on a cancelled booking as **"Amount retained"**.
+- On a cancelled booking, the refund is recorded as a `refund` payment, so `paid_total` shows what Booking Organizer actually kept. The contract `grand_total` stays stored unchanged for the record, but `balance` is forced to 0 (by `money.php`, on cancellation and on every later payment write), so a cancelled booking never shows the client as owing the rest of the contract. Lists and documents label `paid_total` on a cancelled booking as **"Amount retained"**.
 - **Refund policy hint.** The refund form on a cancelled booking shows a suggestion, never enforced: days between the `cancelled_at` date and `event_date` → ≥ 30 days uses `refund_pct_30`, ≥ 7 days uses `refund_pct_7`, 0–6 days uses 0%. The percentage applies to the **total of non-voided payments** (what the client paid, before any refunds), and refunds already made count against it: suggested refund = `max(0, min(refundable, pct × total_paid − already_refunded))`, where `refundable` is the refund cap (below). Shown as "Policy suggests refunding Rs. X (P% of Rs. T paid, Rs. R already refunded)". So a second refund never gets the full percentage again. No suggestion is shown, only "No policy suggestion — …" with the reason, when: `event_date` is empty (a draft cancelled before a date was set), the relevant refund percentage is empty, cancellation happened after the event date, or `refundable` is 0. The admin enters the actual amount; only the refund cap below is enforced.
 - The invoice shows the full chain plus a table of the payments received.
 
@@ -338,7 +338,7 @@ Once a booking is confirmed, its SLA counts as issued. Only the admin can edit i
    4. If `vendor_id` is changing, lock the new vendor's `users` row with `LOCK IN SHARE MODE` and check it is an active vendor (Section 5, ownership rules).
    Locking the booking first and a venue second is never allowed; it can deadlock against a confirmation. Every check below reads the **locked** booking row.
 1. The admin must enter an amendment reason; the save is refused without one.
-2. **Signed copy on file first.** If the current revision was signed (any `vendor_sign_*` or `client_sign_*` value is filled in), a **non-voided** attachment with `signed_revision` = the current revision must already exist. Otherwise the save is refused with "Upload the signed copy of Rev N before amending." This is checked with the booking row locked, in the same transaction as the amendment. The scan is uploaded beforehand through the normal attachment upload, with a "signed copy of Rev N" option that sets `signed_revision`. A revision that was never signed needs no scan. The rule follows AO Mess policy through the config setting `REQUIRE_SIGNED_COPY_FOR_AMENDMENT` (default: on).
+2. **Signed copy on file first.** If the current revision was signed (any `vendor_sign_*` or `client_sign_*` value is filled in), a **non-voided** attachment with `signed_revision` = the current revision must already exist. Otherwise the save is refused with "Upload the signed copy of Rev N before amending." This is checked with the booking row locked, in the same transaction as the amendment. The scan is uploaded beforehand through the normal attachment upload, with a "signed copy of Rev N" option that sets `signed_revision`. A revision that was never signed needs no scan. The rule follows Booking Organizer policy through the config setting `REQUIRE_SIGNED_COPY_FOR_AMENDMENT` (default: on).
 3. **Validation and venue check.** The numeric and cross-field validation (Section 6) runs. If `venue_id` or `event_date` changed, the new venue must be active (unless it is unchanged), and the locking conflict read from Section 9 step 3 runs against the new venue and date, with the venue(s) already locked in step 0. A conflict refuses the save unless the admin overrides with a reason.
 4. `revision` goes up by 1 and `revised_at` is set; `vendor_sign_*` and `client_sign_*` are cleared, so the amended agreement prints with blank signature lines and must be signed again.
 5. Save the fields (with `version + 1`), then call `recompute_booking_totals()` (Section 6). Payments are untouched; `balance` is recomputed and can go negative (money owed back to the client).
@@ -448,7 +448,7 @@ Rules around this sequence:
 | Upload Invoice | `attachments` |
 | General Decor checklist (Light, Generator, Flower, Extra) | Decor sections of the catalog → line items |
 | Ops inventory lines, Vendor Name | `ops_item` line items; `vendor_id` |
-| Office address / phone / email footer | AO Mess details from config |
+| Office address / phone / email footer | Booking Organizer details from config |
 | **Not included:** first/prev/next/last record navigation | Replaced by list search |
 | **Deferred:** Report button | Reports are a later phase (Section 16) |
 
@@ -456,11 +456,11 @@ Rules around this sequence:
 
 Each question has a default; the build won't stall waiting for an answer.
 
-1. **Contract wording**, needed before Phase 6. The mockup has form sections and one policy paragraph, not a full agreement, so AO Mess must supply or approve the clause text. Default: use the mockup's wording and mark it "to be legally reviewed".
+1. **Contract wording**, needed before Phase 6. The mockup has form sections and one policy paragraph, not a full agreement, so Booking Organizer must supply or approve the clause text. Default: use the mockup's wording and mark it "to be legally reviewed".
 2. **Charge list and default rates**, needed before Phase 1 seeding. Default: seed the neutral names above with no rates; the admin fills them in.
 3. **Venues**, needed before Phase 3: the exact list. Default: Lawn A/B/C, Pool side, Hall. Scheduling is decided: one booking per venue per day, no time slots (Section 9).
 4. **Who records payments and who confirms bookings?** Default: the admin only.
-5. **AO Mess office address, phone and email** for the letterhead and document footers.
+5. **Booking Organizer office address, phone and email** for the letterhead and document footers.
 6. **Local database for testing.** XAMPP's MariaDB can run on port 3307 via a change to XAMPP's own `my.ini`, which doesn't touch the other MySQL service on this machine. Its data directory already shows startup errors and may need repair. Default: ask before changing anything; the fallback is testing on a Hostinger staging subdomain.
 
 ## 14. Build order

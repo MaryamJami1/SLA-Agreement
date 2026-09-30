@@ -15,7 +15,7 @@ $decorSections = array_intersect_key($d['lines'], array_flip(['decor_general', '
   <a class="btn" href="<?= h(url('documents/invoice.php?id=' . (int) $booking['id'])) ?>">Invoice</a>
 </div>
 
-<div class="doc card">
+<div class="doc card" style="--z:<?= h(vendor_sheet_print_zoom($booking, $d, $decorSections)) ?>">
 <?php if ($watermark): ?>
   <div class="watermark"><?= h($watermark) ?></div>
 <?php endif; ?>
@@ -28,11 +28,11 @@ $decorSections = array_intersect_key($d['lines'], array_flip(['decor_general', '
       <div><span>Printed</span><strong><?= h(date('d M Y')) ?></strong></div>
     </div>
   </div>
-  <p class="doc-note">Internal working copy for the vendor and AO Mess operations staff.</p>
+  <p class="doc-note">Internal working copy for the vendor and Booking Organizer operations staff.</p>
 
   <table class="doc-table kv">
     <tr><th>Vendor</th><td><?= h(dv($booking['firm_name'])) ?></td>
-        <th>Venue</th><td><?= h(dv($d['venue'])) ?></td></tr>
+        <th>Venue</th><td><?= h(dvenue($d)) ?></td></tr>
     <tr><th>Contact person</th><td><?= h(dv($booking['rep_name'])) ?> <?= h(dv($booking['rep_contact'], '')) ?></td>
         <th>Event</th><td><?= h(dchoice($booking, 'event_type', 'event_type_other')) ?></td></tr>
     <tr><th>Event date</th><td><?= h(ddate($booking['event_date'])) ?><?= $d['event_day'] ? ' (' . h($d['event_day']) . ')' : '' ?></td>
@@ -61,39 +61,25 @@ $decorSections = array_intersect_key($d['lines'], array_flip(['decor_general', '
 
 <?php if ($decorSections): ?>
   <h4 class="doc-sub">Decor checklist</h4>
-  <div class="doc-checklist">
+  <table class="doc-table kv doc-items">
 <?php foreach ($decorSections as $section => $items): ?>
-    <div>
-      <strong><?= h(LINE_SECTIONS[$section]) ?></strong>
-      <ul>
-<?php foreach ($items as $item): ?>
-        <li><?= h($item['label']) ?><?= $item['notes'] ? ' — ' . h($item['notes']) : '' ?></li>
+    <tr><th><?= h(LINE_SECTIONS[$section]) ?></th>
+        <td><?= implode(', ', array_map(static fn($item) => h($item['label']) . ($item['notes'] ? ' (' . h($item['notes']) . ')' : ''), $items)) ?></td></tr>
 <?php endforeach; ?>
-      </ul>
-    </div>
-<?php endforeach; ?>
-  </div>
-<?php endif; ?>
-
-  <h4 class="doc-sub">Furniture &amp; manpower</h4>
-  <table class="doc-table kv">
-    <tr><th>Sofas</th><td><?= (int) $booking['sofas'] ?></td><th>Chairs</th><td><?= (int) $booking['chairs'] ?></td>
-        <th>Dining tables</th><td><?= (int) $booking['tables_dining'] ?></td></tr>
-    <tr><th>Buffet tables</th><td><?= (int) $booking['tables_buffet'] ?></td><th>Waiters</th><td><?= (int) $booking['waiters'] ?></td>
-        <th>Chefs</th><td><?= (int) $booking['chefs'] ?></td></tr>
   </table>
+<?php endif; ?>
 
 <?php if ($booking['food_items'] || $booking['menu_type']): ?>
   <h4 class="doc-sub">Catering</h4>
-  <p><strong><?= h(dchoice($booking, 'menu_type', 'menu_type_other')) ?></strong></p>
+  <p class="doc-text"><strong><?= h(dchoice($booking, 'menu_type', 'menu_type_other')) ?></strong></p>
 <?php if ($booking['food_items']): ?>
-  <p><?= nl2br(h($booking['food_items'])) ?></p>
+  <p class="doc-text"><?= nl2br(h($booking['food_items'])) ?></p>
 <?php endif; ?>
 <?php endif; ?>
 
 <?php if ($booking['special_commitments']): ?>
   <h4 class="doc-sub">Special commitments</h4>
-  <p><?= nl2br(h($booking['special_commitments'])) ?></p>
+  <p class="doc-text"><?= nl2br(h($booking['special_commitments'])) ?></p>
 <?php endif; ?>
 
   <h4 class="doc-sub">Account summary</h4>
@@ -108,6 +94,6 @@ $decorSections = array_intersect_key($d['lines'], array_flip(['decor_general', '
 
   <div class="doc-signs">
     <div><div class="sign-line"></div><span>Vendor representative on site</span></div>
-    <div><div class="sign-line"></div><span>AO Mess operations</span></div>
+    <div><div class="sign-line"></div><span>Booking Organizer operations</span></div>
   </div>
 </div>
