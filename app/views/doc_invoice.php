@@ -13,7 +13,7 @@ $netPaid = $d['paid'] - $d['refunded'];
   <button type="button" class="btn primary" id="print-btn">Print / Save as PDF</button>
   <a class="btn" href="<?= h(url('booking/form.php?id=' . (int) $booking['id'])) ?>">Back to the booking</a>
   <a class="btn" href="<?= h(url('documents/agreement.php?id=' . (int) $booking['id'])) ?>">Agreement</a>
-  <a class="btn" href="<?= h(url('documents/vendor_sheet.php?id=' . (int) $booking['id'])) ?>">Ops sheet</a>
+  <a class="btn" href="<?= h(url('documents/ops_sheet.php?id=' . (int) $booking['id'])) ?>">Ops sheet</a>
 </div>
 
 <div class="doc card" style="--z:<?= h(invoice_print_zoom($booking, $d)) ?>">
@@ -49,7 +49,7 @@ $netPaid = $d['paid'] - $d['refunded'];
       <p>Date: <?= h(ddate($booking['event_date'])) ?><?= $d['event_day'] ? ' (' . h($d['event_day']) . ')' : '' ?></p>
       <p>Venue: <?= h(dvenue($d)) ?></p>
       <p>Guests: <?= $guests ?></p>
-      <p>Vendor: <?= h(dv($booking['firm_name'])) ?></p>
+      <p>User: <?= h(dv($booking['firm_name'])) ?></p>
     </div>
   </div>
 

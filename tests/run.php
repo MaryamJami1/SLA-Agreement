@@ -16,6 +16,9 @@ require __DIR__ . '/../app/payments.php';
 require __DIR__ . '/../app/documents.php';
 require __DIR__ . '/../app/attachments.php';
 require __DIR__ . '/../app/admin_data.php';
+require __DIR__ . '/../app/charts.php';
+require __DIR__ . '/../app/dashboard.php';
+require __DIR__ . '/../app/vendors.php';
 
 $passed = 0;
 $failed = [];
@@ -233,22 +236,41 @@ foreach (['ab', 'has space', 'UPPER', str_repeat('a', 51), 'bad!char', ''] as $b
     check("username rejects '$bad'", is_valid_username($bad), false);
 }
 
-check('good password', password_problems('correct horse', 'correct horse', 'vendor1'), []);
-check('password too short', count(password_problems('short', 'short', 'vendor1')), 1);
-check('password 10 chars ok', password_problems('abcdefghij', 'abcdefghij', 'vendor1'), []);
-check('password 9 chars rejected', count(password_problems('abcdefghi', 'abcdefghi', 'vendor1')), 1);
-check('password over 72 bytes rejected', count(password_problems(str_repeat('a', 73), str_repeat('a', 73), 'vendor1')), 1);
-check('password 72 bytes ok', password_problems(str_repeat('a', 72), str_repeat('a', 72), 'vendor1'), []);
-check('password mismatch', count(password_problems('abcdefghij', 'abcdefghik', 'vendor1')), 1);
-check('password same as current', count(password_problems('Temp123456', 'Temp123456', 'vendor1', 'Temp123456')), 1);
-check('password same as username', count(password_problems('vendor.name1', 'vendor.name1', 'vendor.name1')), 1);
+check('good password', password_problems('correct horse', 'correct horse', 'user1'), []);
+check('password too short', count(password_problems('short', 'short', 'user1')), 1);
+check('password 10 chars ok', password_problems('abcdefghij', 'abcdefghij', 'user1'), []);
+check('password 9 chars rejected', count(password_problems('abcdefghi', 'abcdefghi', 'user1')), 1);
+check('password over 72 bytes rejected', count(password_problems(str_repeat('a', 73), str_repeat('a', 73), 'user1')), 1);
+check('password 72 bytes ok', password_problems(str_repeat('a', 72), str_repeat('a', 72), 'user1'), []);
+check('password mismatch', count(password_problems('abcdefghij', 'abcdefghik', 'user1')), 1);
+check('password same as current', count(password_problems('Temp123456', 'Temp123456', 'user1', 'Temp123456')), 1);
+check('password same as username', count(password_problems('user.name1', 'user.name1', 'user.name1')), 1);
 check('multibyte chars count as characters', password_problems('پاکستان۱۲۳', 'پاکستان۱۲۳', 'x'), []);
 
 $temp = generate_temp_password();
 check('temp password length', strlen($temp), 12);
 check('temp password alphabet', preg_match('/^[A-HJ-NP-Za-km-np-z2-9]{12}$/', $temp), 1);
 check('temp passwords differ', generate_temp_password() !== generate_temp_password(), true);
-check('temp password passes the rules', password_problems($temp, $temp, 'vendor1'), []);
+check('temp password passes the rules', password_problems($temp, $temp, 'user1'), []);
+
+// Admin "Add user" form.
+$userIn = ['firm_name' => ' Khan Events ', 'rep_name' => 'Uzair Khan', 'contact' => '0300-1234567', 'username' => ' Uzair.Khan '];
+check('add user: cleaned', clean_user_input($userIn),
+    ['firm_name' => 'Khan Events', 'rep_name' => 'Uzair Khan', 'contact' => '0300-1234567', 'username' => 'uzair.khan']);
+$userRefused = static function (array $in): ?string {
+    try {
+        clean_user_input($in);
+        return null;
+    } catch (AdminRefused $e) {
+        return $e->getMessage();
+    }
+};
+check('add user: firm name required', $userRefused(['firm_name' => '  '] + $userIn), 'Enter the firm name.');
+check('add user: representative required', $userRefused(['rep_name' => ''] + $userIn), 'Enter the representative name.');
+check('add user: contact too long', $userRefused(['contact' => str_repeat('1', 51)] + $userIn) !== null, true);
+check('add user: bad username', $userRefused(['username' => 'a b'] + $userIn) !== null, true);
+check('add user: missing username', $userRefused(array_diff_key($userIn, ['username' => 1])) !== null, true);
+check('add user: non-string field', $userRefused(['firm_name' => ['x']] + $userIn), 'Enter the firm name.');
 
 $secret = str_repeat('k', 64);
 $hash = '$2y$10$abcdefghijklmnopqrstuuM5Cq2eAkHkG7Vw1d2m3n4o5p6q7r8s9t';
@@ -268,7 +290,7 @@ check('device cookie null', device_cookie_is_valid(null, 7, $hash, $secret, $now
 check('allowlist change password', is_password_change_allowlisted('/auth/change_password.php'), true);
 check('allowlist logout', is_password_change_allowlisted('/portal/auth/logout.php'), true);
 check('allowlist blocks home', is_password_change_allowlisted('/index.php'), false);
-check('allowlist blocks admin', is_password_change_allowlisted('/admin/vendors.php'), false);
+check('allowlist blocks admin', is_password_change_allowlisted('/admin/users.php'), false);
 check('allowlist blocks look-alike', is_password_change_allowlisted('/auth/change_password.php.bak'), false);
 
 // ---------------------------------------------------------------------------
@@ -300,12 +322,12 @@ check_rejects('pct over 100', fn() => parse_booking_value('pct', null, '150'));
 // Authorization rule (load_booking_for_user)
 // ---------------------------------------------------------------------------
 $adminU = ['id' => 1, 'role' => 'admin'];
-$owner = ['id' => 5, 'role' => 'vendor'];
-$other = ['id' => 6, 'role' => 'vendor'];
-$bk = static fn(string $status, ?int $vendorId = 5) => ['status' => $status, 'vendor_id' => $vendorId];
+$owner = ['id' => 5, 'role' => 'user'];
+$other = ['id' => 6, 'role' => 'user'];
+$bk = static fn(string $status, ?int $userId = 5) => ['status' => $status, 'user_id' => $userId];
 check('owner views own booking', booking_allows($bk('confirmed'), $owner, 'view'), true);
-check('other vendor cannot view', booking_allows($bk('draft'), $other, 'view'), false);
-check('vendor cannot view unassigned draft', booking_allows($bk('draft', null), $owner, 'view'), false);
+check('other user cannot view', booking_allows($bk('draft'), $other, 'view'), false);
+check('user cannot view unassigned draft', booking_allows($bk('draft', null), $owner, 'view'), false);
 check('owner edits own draft', booking_allows($bk('draft'), $owner, 'edit'), true);
 check('owner cannot edit confirmed', booking_allows($bk('confirmed'), $owner, 'edit'), false);
 check('admin edits confirmed (amendment)', booking_allows($bk('confirmed'), $adminU, 'edit'), true);
@@ -316,7 +338,7 @@ check('nobody deletes confirmed', [booking_allows($bk('confirmed'), $owner, 'del
 check('money/confirm is admin only', [booking_allows($bk('draft'), $owner, 'admin'), booking_allows($bk('draft'), $adminU, 'admin')], [false, true]);
 check('unknown intent denied', booking_allows($bk('draft'), $adminU, 'anything'), false);
 check('scope: admin sees all', booking_scope_sql($adminU), ['1 = 1', []]);
-check('scope: vendor sees own', booking_scope_sql($owner), ['b.vendor_id = ?', [5]]);
+check('scope: user sees own', booking_scope_sql($owner), ['b.user_id = ?', [5]]);
 
 // ---------------------------------------------------------------------------
 // Line validation
@@ -331,14 +353,14 @@ $formLines = [
     'l1' => ['present' => '1', 'rate' => '6,000', 'notes' => ' ok '],          // unticked existing line: kept, unselected
     'c2' => ['present' => '1', 'selected' => '1', 'rate' => '300', 'qty' => '4'],
     'c3' => ['present' => '1', 'rate' => '999'],                                // unticked catalog item: not stored
-    'c4' => ['present' => '1', 'selected' => '1', 'qty' => '2', 'rate' => '50'], // ops: priced like the rest
+    'c4' => ['present' => '1', 'selected' => '1', 'qty' => '2', 'rate' => '50'], // ops: a posted rate is ignored
     'l99' => ['present' => '1', 'selected' => '1', 'rate' => '1'],              // not on this form: ignored
 ], $formLines);
 check('line errors none', $pe, []);
 check('lines kept', array_keys($pl), ['l1', 'c2', 'c4']);
 check('existing line unselected with new rate', $pl['l1']['new'], ['selected' => false, 'rate' => '6000.00', 'qty' => null, 'notes' => 'ok']);
 check('per-unit charge qty', $pl['c2']['new'], ['selected' => true, 'rate' => '300.00', 'qty' => 4, 'notes' => null]);
-check('ops item keeps qty and the admin rate', [$pl['c4']['new']['qty'], $pl['c4']['new']['rate']], [2, '50.00']);
+check('ops item keeps qty and takes no rate', [$pl['c4']['new']['qty'], $pl['c4']['new']['rate']], [2, null]);
 check('section/label come from the form lines, not the POST', [$pl['c2']['section'], $pl['c2']['label']], ['charge', 'Tracing']);
 [, $pe] = parse_booking_lines(['c2' => ['present' => '1', 'selected' => '1', 'rate' => '', 'qty' => '1']], $formLines);
 check('selected charge needs a rate', array_keys($pe), ['line_c2']);
@@ -348,19 +370,19 @@ check('selected per-unit charge needs a qty', array_keys($pe), ['line_c2']);
 check('negative rate rejected', array_keys($pe), ['line_l1']);
 [$pl] = parse_booking_lines([], $formLines);
 check('no posted lines → no changes', $pl, []);
-// A vendor ticks what the event needs but never sets a rate: the posted rate is ignored.
+// A user ticks what the event needs but never sets a rate: the posted rate is ignored.
 [$pl, $pe] = parse_booking_lines([
     'l1' => ['present' => '1', 'selected' => '1', 'rate' => '1', 'notes' => 'needed'],
     'c2' => ['present' => '1', 'selected' => '1', 'rate' => '1', 'qty' => '4'],
     'c3' => ['present' => '1', 'selected' => '1', 'rate' => '999'],
 ], $formLines, false);
-check('vendor line errors none', $pe, []);
-check('vendor keeps the stored rate on an existing charge', $pl['l1']['new'], ['selected' => true, 'rate' => '5000.00', 'qty' => null, 'notes' => 'needed']);
-check('vendor-ticked charge takes the catalog rate', $pl['c2']['new'], ['selected' => true, 'rate' => '300.00', 'qty' => 4, 'notes' => null]);
-check('vendor cannot price a decor item', $pl['c3']['new']['rate'], null);
+check('user line errors none', $pe, []);
+check('user keeps the stored rate on an existing charge', $pl['l1']['new'], ['selected' => true, 'rate' => '5000.00', 'qty' => null, 'notes' => 'needed']);
+check('user-ticked charge takes the catalog rate', $pl['c2']['new'], ['selected' => true, 'rate' => '300.00', 'qty' => 4, 'notes' => null]);
+check('user cannot price a decor item', $pl['c3']['new']['rate'], null);
 $unpriced = ['c5' => ['key' => 'c5', 'line_id' => null, 'catalog_id' => 5, 'section' => 'charge', 'label' => 'Service', 'unit' => 'fixed', 'selected' => false, 'qty' => null, 'rate' => null, 'notes' => null, 'sort_order' => 3]];
 [$pl, $pe] = parse_booking_lines(['c5' => ['present' => '1', 'selected' => '1', 'rate' => '900']], $unpriced, false);
-check('vendor may tick a charge that has no rate yet', [$pe, $pl['c5']['new']['rate']], [[], null]);
+check('user may tick a charge that has no rate yet', [$pe, $pl['c5']['new']['rate']], [[], null]);
 [, $pe] = parse_booking_lines(['c5' => ['present' => '1', 'selected' => '1', 'rate' => '']], $unpriced, true);
 check('admin must price that charge', array_keys($pe), ['line_c5']);
 
@@ -370,13 +392,13 @@ check('field diff', booking_field_diff(['guests' => 250, 'discount' => '0.00', '
 // ---------------------------------------------------------------------------
 // Confirmed bookings: direct edit vs amendment
 // ---------------------------------------------------------------------------
-$oldB = ['client_contact' => '0300', 'guests' => 200, 'client_company' => null, 'vendor_sign_name' => 'Uzair', 'decor_by' => null];
+$oldB = ['client_contact' => '0300', 'guests' => 200, 'client_company' => null, 'user_sign_name' => 'Uzair', 'decor_by' => null];
 $line = static fn(string $section, bool $was, bool $now) => ['line_id' => 7, 'section' => $section, 'label' => 'X', 'selected' => $was,
     'qty' => null, 'rate' => null, 'notes' => null, 'new' => ['selected' => $now, 'qty' => null, 'rate' => null, 'notes' => null]];
 
 $c = classify_confirmed_changes($oldB, ['client_contact' => '0311'] + $oldB, []);
 check('contact change is a direct edit', [array_keys($c['changed']), $c['amendment_fields']], [['client_contact'], []]);
-$c = classify_confirmed_changes($oldB, ['vendor_sign_name' => 'U. Khan', 'decor_by' => 'In-house'] + $oldB, []);
+$c = classify_confirmed_changes($oldB, ['user_sign_name' => 'U. Khan', 'decor_by' => 'In-house'] + $oldB, []);
 check('signature and decor-by are direct edits', $c['amendment_fields'], []);
 $c = classify_confirmed_changes($oldB, ['guests' => 250, 'client_contact' => '0311'] + $oldB, []);
 check('mixed save counts as an amendment', array_keys($c['amendment_fields']), ['guests']);
@@ -451,16 +473,16 @@ check('quotes and control characters stripped', sanitize_file_name("bad\"name\r\
 check('empty file name replaced', sanitize_file_name('   '), 'upload');
 check('long file name trimmed', mb_strlen(sanitize_file_name(str_repeat('a', 400) . '.pdf')), 255);
 
-$draft = ['vendor_id' => 5, 'status' => 'draft'];
-$confirmed = ['vendor_id' => 5, 'status' => 'confirmed'];
+$draft = ['user_id' => 5, 'status' => 'draft'];
+$confirmed = ['user_id' => 5, 'status' => 'confirmed'];
 $adminUser = ['id' => 1, 'role' => 'admin'];
-$ownerVendor = ['id' => 5, 'role' => 'vendor'];
-$otherVendor = ['id' => 6, 'role' => 'vendor'];
-check('owner vendor uploads to their draft', can_upload_attachment($draft, $ownerVendor), true);
-check('owner vendor cannot upload to a confirmed booking', can_upload_attachment($confirmed, $ownerVendor), false);
-check('other vendor cannot upload', can_upload_attachment($draft, $otherVendor), false);
+$ownerUser = ['id' => 5, 'role' => 'user'];
+$otherUser = ['id' => 6, 'role' => 'user'];
+check('owner user uploads to their draft', can_upload_attachment($draft, $ownerUser), true);
+check('owner user cannot upload to a confirmed booking', can_upload_attachment($confirmed, $ownerUser), false);
+check('other user cannot upload', can_upload_attachment($draft, $otherUser), false);
 check('admin uploads in any status', [can_upload_attachment($draft, $adminUser), can_upload_attachment($confirmed, $adminUser),
-    can_upload_attachment(['vendor_id' => 5, 'status' => 'cancelled'], $adminUser)], [true, true, true]);
+    can_upload_attachment(['user_id' => 5, 'status' => 'cancelled'], $adminUser)], [true, true, true]);
 check('accepted upload types', array_keys(UPLOAD_TYPES), ['application/pdf', 'image/jpeg', 'image/png']);
 check('upload limit is 5 MB', UPLOAD_MAX_BYTES, 5242880);
 
@@ -480,6 +502,7 @@ check('catalog name required', $refused(fn() => clean_catalog_input(['name' => '
 check('catalog unit must be known', $refused(fn() => clean_catalog_input(['name' => 'X', 'unit' => 'per kilo'], false)) !== null, true);
 check('catalog section must be known on create', $refused(fn() => clean_catalog_input(['name' => 'X', 'unit' => 'fixed', 'section' => 'nope'], true)) !== null, true);
 check('catalog section accepted on create', clean_catalog_input(['name' => 'X', 'unit' => 'fixed', 'section' => 'ops_item', 'sort_order' => '0'], true)['section'], 'ops_item');
+check('ops item default rate is dropped', clean_catalog_input(['name' => 'X', 'unit' => 'fixed', 'section' => 'ops_item', 'default_rate' => '500', 'sort_order' => '0'], true)['default_rate'], null);
 check('negative rate refused', $refused(fn() => clean_catalog_input(['name' => 'X', 'unit' => 'fixed', 'default_rate' => '-5'], false)) !== null, true);
 check('sort order must be a whole number', $refused(fn() => clean_sort_order('abc')) !== null, true);
 check('sort order default', clean_sort_order(''), 0);
@@ -497,6 +520,200 @@ check('host header filtered', https_redirect_target(['HTTP_HOST' => "aomess.pk/e
 check('no host at all', https_redirect_target(['REQUEST_URI' => '/'], ''), null);
 check('relative request URI forced to root',
     https_redirect_target(['HTTP_HOST' => 'aomess.pk', 'REQUEST_URI' => 'https://evil.example/x'], ''), 'https://aomess.pk/');
+
+// ---------------------------------------------------------------------------
+// Dashboard: chart scales, short money figures, periods
+// ---------------------------------------------------------------------------
+check('axis step for nothing', axis_step(0), 1);
+check('axis step small count', axis_step(3), 1);
+check('axis step count of 7', axis_step(7), 2);
+check('axis step count of 20', axis_step(20), 5);
+check('axis step uses 25', axis_step(90), 25);
+check('axis step 1,30,000', axis_step(130000), 50000);
+check('axis step exact fit', axis_step(400), 100);
+check('axis ticks', axis_ticks(7), [0, 2, 4, 6, 8]);
+check('axis ticks are whole numbers for 1', axis_ticks(1), [0, 1, 2, 3, 4]);
+check('compact zero', compact_rs(0), 'Rs. 0');
+check('compact below a thousand', compact_rs(95000), 'Rs. 950');
+check('compact thousands', compact_rs(4550000), 'Rs. 45.5K');
+check('compact drops .0', compact_rs(5000000), 'Rs. 50K');
+check('compact lakh', compact_rs(123456700), 'Rs. 12.3 Lakh');
+check('compact crore', compact_rs(1234567800), 'Rs. 1.2 Cr');
+check('compact big crore grouped', compact_rs(123456789000), 'Rs. 123.5 Cr');
+check('compact rounds up into the next unit', compact_rs(999600000), 'Rs. 1 Cr');
+check('compact 99,960 is 1 Lakh, not 100K', compact_rs(9996000), 'Rs. 1 Lakh');
+check('compact negative', compact_rs(-500000), 'Rs. -5K');
+check('percent up', percent_change(150, 100), 50);
+check('percent down', percent_change(75, 100), -25);
+check('percent from nothing has no figure', percent_change(10, 0), null);
+check('empty chart', chart_is_empty([['values' => [0, 0]], ['values' => [0]]]), true);
+check('chart with one value', chart_is_empty([['values' => [0, 0]], ['values' => [3]]]), false);
+check('rank bar with no value draws nothing', strpos(svg_rank_bar(0, 10, 's-booked'), '<rect') === false, true);
+check('rank bar is a share of the largest', strpos(svg_rank_bar(5, 10, 's-booked'), 'width="50%"') !== false, true);
+check('a tiny share is still visible', strpos(svg_rank_bar(1, 1000, 's-booked'), 'width="1%"') !== false, true);
+
+$chart = svg_column_chart(
+    [['label' => 'Jan', 'sub' => '2026', 'title' => 'January 2026'], ['label' => 'Feb', 'sub' => '', 'title' => 'February 2026']],
+    [['class' => 's-booked', 'name' => 'A <b>', 'values' => [4, 0], 'display' => ['4', '0']],
+     ['class' => 's-collected', 'name' => 'B', 'values' => [-2, 8], 'display' => ['-2', '8']]],
+    'strval', false, 'Test "chart"');
+check('chart escapes its labels', strpos($chart, 'A <b>') === false && strpos($chart, 'A &lt;b&gt;') !== false, true);
+check('chart has one target per period', substr_count($chart, 'class="chart-hit"'), 2);
+check('zero and negative values draw no column', substr_count($chart, 'class="chart-mark'), 2);
+check('negative value still reported', strpos($chart, 'B -2') !== false, true);
+check('chart has no style attribute (CSP)', strpos($chart, 'style=') === false, true);
+
+check('share of a whole', percent_of(1, 3), 33);
+check('share is capped at 100', percent_of(150, 100), 100);
+check('share of nothing', percent_of(5, 0), 0);
+check('negative share is 0', percent_of(-5, 100), 0);
+
+$area = svg_area_chart(
+    [['label' => 'Jan', 'sub' => '', 'title' => 'January 2026'], ['label' => 'Feb', 'sub' => '', 'title' => 'February 2026']],
+    [['class' => 's-booked', 'name' => 'Booked', 'values' => [4, 8], 'display' => ['4', '8']]], 'strval', 'Area');
+check('area chart has a line, a wash and a dot per period',
+    [substr_count($area, 'class="chart-line'), substr_count($area, 'class="chart-area'), substr_count($area, 'class="chart-dot')], [1, 1, 2]);
+check('area chart has one target per period', substr_count($area, 'class="chart-hit"'), 2);
+check('area chart has no style attribute (CSP)', strpos($area, 'style=') === false, true);
+
+$donut = svg_donut([
+    ['class' => 's-cash', 'name' => 'Cash', 'value' => 75, 'display' => 'Rs. 75'],
+    ['class' => 's-online', 'name' => 'Online <i>', 'value' => 25, 'display' => 'Rs. 25'],
+    ['class' => 's-cheque', 'name' => 'Cheque', 'value' => 0, 'display' => 'Rs. 0'],
+    ['class' => 's-bank-transfer', 'name' => 'Bank', 'value' => -10, 'display' => 'Rs. -10'],
+], '100', 'collected', 'Donut');
+check('donut draws only the shares above zero', substr_count($donut, 'class="donut-seg'), 2);
+check('donut escapes its names', strpos($donut, 'Online <i>') === false, true);
+check('donut with nothing in it is just the track', substr_count(svg_donut([], '0', 'x', 'y'), 'donut-seg'), 0);
+check('gauge shows its percentage', strpos(svg_gauge(72, 's-collected', 'g'), '>72%<') !== false, true);
+check('gauge is capped', strpos(svg_gauge(140, 's-collected', 'g'), '>100%<') !== false, true);
+check('empty gauge has a track and no fill', substr_count(svg_gauge(0, 's-collected', 'g'), 'gauge-fill'), 0);
+check('every icon is drawn', strpos(dash_icon('venue'), '<path') !== false && dash_icon('nope') !== '', true);
+
+$p = dashboard_period('12m', new DateTimeImmutable('2026-09-30'));
+check('12m period', [$p['start'], $p['end'], count($p['months']), $p['months'][0], $p['months'][11]],
+    ['2025-10-01', '2026-09-30', 12, '2025-10', '2026-09']);
+check('12m comparison', [$p['previous']['start'], $p['previous']['end']], ['2024-10-01', '2025-09-30']);
+$p = dashboard_period('6m', new DateTimeImmutable('2026-03-31'));
+check('6m period from a 31st', [$p['start'], $p['end'], $p['months']],
+    ['2025-10-01', '2026-03-31', ['2025-10', '2025-11', '2025-12', '2026-01', '2026-02', '2026-03']]);
+check('6m comparison', [$p['previous']['start'], $p['previous']['end']], ['2025-04-01', '2025-09-30']);
+$p = dashboard_period('year', new DateTimeImmutable('2026-09-30'));
+check('year period', [$p['start'], $p['end'], count($p['months']), $p['previous']], ['2026-01-01', '2026-12-31', 12, null]);
+check('unknown range falls back', dashboard_period('<script>', new DateTimeImmutable('2026-09-30'))['key'], '12m');
+check('february end in a leap year', dashboard_period('6m', new DateTimeImmutable('2028-02-10'))['end'], '2028-02-29');
+$day = new DateTimeImmutable('2026-09-30');
+$p = dashboard_period('custom', $day, '2026-02', '2026-04');
+check('custom period', [$p['key'], $p['start'], $p['end'], $p['months'], $p['clamped']],
+    ['custom', '2026-02-01', '2026-04-30', ['2026-02', '2026-03', '2026-04'], false]);
+check('custom comparison is the same length before it', [$p['previous']['start'], $p['previous']['end'], $p['previous']['label']],
+    ['2025-11-01', '2026-01-31', 'previous 3 months']);
+check('custom range given backwards is put right', dashboard_period('custom', $day, '2026-04', '2026-02')['months'], ['2026-02', '2026-03', '2026-04']);
+check('one-month custom range', [count(dashboard_period('custom', $day, '2026-02', '2026-02')['months']),
+    dashboard_period('custom', $day, '2026-02', '2026-02')['previous']['label']], [1, 'previous month']);
+$p = dashboard_period('custom', $day, '2020-01', '2026-01');
+check('custom range is capped', [count($p['months']), $p['clamped'], $p['end']], [DASHBOARD_MAX_MONTHS, true, '2021-12-31']);
+check('unreadable custom range falls back', dashboard_period('custom', $day, '2026-13', 'x')['key'], '12m');
+check('custom range needs both ends', dashboard_period('custom', $day, '2026-02', '')['key'], '12m');
+check('month parser rejects a day', dashboard_month('2026-02-01'), null);
+check('activity subject: a booking', dashboard_activity_subject(['unique_id' => 'SLA-2026-0007', 'revision' => 2, 'client_name' => 'Ayesha', 'details' => null]),
+    'SLA-2026-0007 Rev 2 · Ayesha');
+check('activity subject: an account', dashboard_activity_subject(['unique_id' => null, 'details' => '{"user_id":4,"username":"uzair"}']), 'uzair');
+check('activity subject: nothing named', dashboard_activity_subject(['unique_id' => null, 'details' => 'not json']), '');
+check('every audit action but sign-ins has a name', count(DASHBOARD_ACTIVITY), 25);
+
+$labels = dashboard_month_labels(['2025-11', '2025-12', '2026-01']);
+check('month labels', array_column($labels, 'label'), ['Nov', 'Dec', 'Jan']);
+check('year under the first month and each January', array_column($labels, 'sub'), ['2025', '', '2026']);
+check('admin home', home_path(['role' => 'admin']), 'admin/dashboard.php');
+check('user home', home_path(['role' => 'user']), 'booking/list.php');
+
+// ---------------------------------------------------------------------------
+// Vendors: invoice totals, payment status, numbering
+// ---------------------------------------------------------------------------
+$buffet = vendor_line_amount(300, 250000);
+check('vendor line: 300 × Rs. 2,500', $buffet, 75000000);
+check('vendor line shown', format_rs($buffet), 'Rs. 7,50,000');
+check_rejects('vendor line too large', static fn() => vendor_line_amount(100000, 99999999999));
+$t = vendor_invoice_totals([75000000, 9000000, 12000000], 0, 0, 50000000);
+check('vendor invoice: Rs. 9,60,000 total', [$t['sub_total'], $t['grand_total']], [96000000, 96000000]);
+check('vendor invoice: Rs. 4,60,000 remaining', $t['balance'], 46000000);
+check('vendor invoice: partially paid', vendor_payment_status('issued', $t['grand_total'], $t['paid_total']), 'partial');
+check('vendor invoice: unpaid', vendor_payment_status('issued', 96000000, 0), 'unpaid');
+check('vendor invoice: paid', vendor_payment_status('issued', 96000000, 96000000), 'paid');
+check('vendor invoice: overpaid counts as paid', vendor_payment_status('issued', 96000000, 96000100), 'paid');
+check('vendor invoice: void', vendor_payment_status('void', 96000000, 0), 'void');
+$t = vendor_invoice_totals([1000000], 100000, 1600, 0);            // Rs. 10,000 − 1,000, then 16% tax
+check('vendor invoice: tax on the discounted amount', [$t['taxable'], $t['tax_amount'], $t['grand_total']], [900000, 144000, 1044000]);
+$t = vendor_invoice_totals([333], 0, 1250, 0);                     // 12.5% of Rs. 3.33 = 41.625 paisa
+check('vendor invoice: tax rounds to the nearest paisa', $t['tax_amount'], 42);
+check('vendor invoice: no problems', vendor_invoice_problems(vendor_invoice_totals([1000000], 0, 0, 0)), []);
+check('vendor invoice: discount above sub total refused', count(vendor_invoice_problems(vendor_invoice_totals([1000], 2000, 0, 0))), 1);
+check('vendor invoice: zero total refused', count(vendor_invoice_problems(vendor_invoice_totals([0], 0, 0, 0))), 1);
+check('vendor invoice number', format_vendor_invoice_no(2026, 7), 'VINV-2026-0007');
+check('vendor event label', vendor_event_label(['event_type' => 'Wedding', 'event_type_other' => null,
+    'client_name' => 'Mr. Farid', 'unique_id' => 'SLA-2026-0001']), 'Wedding — Mr. Farid (SLA-2026-0001)');
+check('vendor event label, other type, no client', vendor_event_label(['event_type' => 'Other', 'event_type_other' => 'Mehndi',
+    'client_name' => '', 'unique_id' => 'SLA-2026-0002']), 'Mehndi (SLA-2026-0002)');
+check('vendor contact line', vendor_contact_line(['contact_person' => 'Imran', 'phone' => '0300-1', 'phone2' => '0321-2']),
+    'Imran — 0300-1 / 0321-2');
+check('vendor contact line, empty', vendor_contact_line([]), '—');
+
+// ---------------------------------------------------------------------------
+// Menus
+// ---------------------------------------------------------------------------
+$mi = static fn(int $id, string $cat, string $dish, ?int $group, int $free = 0, int $live = 0) => ['id' => $id, 'dish_id' => 100 + $id,
+    'category' => $cat, 'category_sort' => 0, 'dish' => $dish, 'choice_group' => $group, 'is_free' => $free, 'is_live' => $live];
+$layout = menu_package_layout([$mi(1, 'Starter', 'Juice', 1), $mi(2, 'Starter', 'Lemonade', 1),
+    $mi(3, 'Main Course', 'Biryani', 2), $mi(4, 'Main Course', 'Chargha', null, 0, 1), $mi(5, 'Main Course', 'Pulao', 2)]);
+check('menu layout: categories in order', array_keys($layout), ['Starter', 'Main Course']);
+check('menu layout: a choice group gathers its dishes', array_column($layout['Main Course'][0]['items'], 'dish'), ['Biryani', 'Pulao']);
+check('menu layout: an included dish stays in place', $layout['Main Course'][1]['item']['dish'], 'Chargha');
+check('menu dish label', menu_dish_label('Gulab Jamun', true, true), 'Gulab Jamun (Live) (Free)');
+check('menu dish label: a name that says live is not marked twice', menu_dish_label('Garlic Naan (Live)', true, false), 'Garlic Naan (Live)');
+check('menu price label, per guest', menu_package_price_label(['price_basis' => 'guest', 'per_head_rate' => '575.00']), 'Rs. 575 per guest');
+check('menu price label, none', menu_package_price_label(['price_basis' => 'guest', 'per_head_rate' => null]), '');
+check('menu selection key ignores order', menu_selection_key(3, [9, 4], [7, 2]), menu_selection_key(3, [4, 9], [2, 7]));
+check('menu selection key: different package', menu_selection_key(3, [4], []) === menu_selection_key(4, [4], []), false);
+$saved = json_encode([menu_snapshot_entry($mi(1, 'Starter', 'Juice', 1), false), menu_snapshot_entry($mi(4, 'Main Course', 'Chargha', null, 1, 1), false),
+    menu_snapshot_entry(['id' => 55, 'name' => 'Fish Fry', 'category' => 'Sea Food', 'is_live' => 0], true)]);
+check('menu saved copy, by category', menu_selection_by_category($saved),
+    ['Starter' => ['Juice'], 'Main Course' => ['Chargha (Live) (Free)'], 'Sea Food' => ['Fish Fry']]);
+check('menu saved copy: picks and extras', menu_selection_ids($saved), [[1], [55]]);
+check('menu chooser from a booking', menu_input_from_booking(['menu_package_id' => '3', 'menu_selection' => $saved]),
+    ['package' => 3, 'picks' => [1 => 1], 'extras' => [55 => true]]);
+check('menu chooser from the form', menu_input_from_post(['menu_package_id' => '3', 'menu_pick' => [3 => [1 => '2'], 4 => [1 => '9']],
+    'menu_extra' => ['55', 'x']]), ['package' => 3, 'picks' => [1 => 2], 'extras' => [55 => true]]);
+check('menu: no saved copy', menu_selection_by_category(null), []);
+$extrasJson = json_encode([
+    menu_snapshot_entry($mi(1, 'Starter', 'Juice', null), false),
+    menu_snapshot_entry(['id' => 55, 'name' => 'Fish Fry', 'category' => 'Sea Food', 'is_live' => 0, 'extra_rate' => '150.00', 'extra_unit' => 'per head'], true),
+    menu_snapshot_entry(['id' => 56, 'name' => 'Live Kunafa', 'category' => 'Dessert', 'is_live' => 1, 'extra_rate' => '5000.00', 'extra_unit' => 'fixed'], true),
+    menu_snapshot_entry(['id' => 57, 'name' => 'Paan', 'category' => 'Beverages', 'is_live' => 0, 'extra_rate' => null, 'extra_unit' => 'per head'], true),
+]);
+check('extra dishes become charge lines (package dishes do not)', menu_extra_charge_lines($extrasJson), [
+    'menu_extra_55' => ['unit' => 'per head', 'selected' => true, 'rate' => 15000, 'qty' => null],
+    'menu_extra_56' => ['unit' => 'fixed', 'selected' => true, 'rate' => 500000, 'qty' => null],
+    'menu_extra_57' => ['unit' => 'per head', 'selected' => true, 'rate' => null, 'qty' => null],
+]);
+check('extra dishes in the totals: per guest, fixed, unpriced',
+    compute_totals(57500, 300, 0, menu_extra_charge_lines($extrasJson), [], 'draft')['charges_total'], 15000 * 300 + 500000);
+check('extra rate labels', [menu_extra_rate_label('150.00', 'per head'), menu_extra_rate_label('5000.00', 'fixed'), menu_extra_rate_label(null, 'per head')],
+    ['Rs. 150 per guest', 'Rs. 5,000 fixed', '']);
+[$repriced, $rateErrors] = menu_apply_extra_rates($extrasJson, ['55' => '120', '56' => '5,000', '57' => '40']);
+check('admin re-prices extras', [$rateErrors, array_column(menu_selection_entries($repriced), 'rate', 'dish_id')[55],
+    array_column(menu_selection_entries($repriced), 'rate', 'dish_id')[57]], [[], '120.00', '40.00']);
+check('same rates posted again: the saved copy is unchanged', menu_apply_extra_rates($extrasJson, ['55' => '150', '56' => '5000', '57' => ''])[0], $extrasJson);
+check('a bad extra rate is refused', array_keys(menu_apply_extra_rates($extrasJson, ['55' => 'abc'])[1]), ['menu_extra_rate_55']);
+check('rates for package dishes are ignored', menu_apply_extra_rates($extrasJson, ['101' => '99'])[0], $extrasJson);
+check('menu: unreadable saved copy', menu_selection_by_category('not json'), []);
+check('menu: below the package minimum', menu_min_guests_shortfall(['min_guests' => '250'], 200), 250);
+check('menu: at the package minimum', menu_min_guests_shortfall(['min_guests' => '250'], 250), null);
+check('menu: no minimum', menu_min_guests_shortfall(['min_guests' => null], 10), null);
+check('invoice description with a menu package',
+    invoice_description(['event_type' => 'Barat', 'event_type_other' => null, 'menu_type' => 'Buffet', 'menu_type_other' => null,
+        'menu_package_name' => 'Menu 02', 'event_date' => null], null),
+    'Catering, decoration & event management services — Barat (Buffet menu, Menu 02) at Booking Organizer.');
 
 // ---------------------------------------------------------------------------
 echo "\n", $passed, ' passed, ', count($failed), " failed\n";

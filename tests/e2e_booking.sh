@@ -22,13 +22,13 @@ contains() { if grep -q -- "$1" "$T/body"; then ok "$2"; else bad "$2" "body lac
 lacks() { if grep -q -- "$1" "$T/body"; then bad "$2" "body has [$1]"; else ok "$2"; fi; }
 login() { csrf "$1" /auth/login.php; req "$1" POST /auth/login.php "_csrf=$TOKEN" "username=$2" "password=$3"; }
 
-# Accounts: admin (password already changed) and two active vendors.
+# Accounts: admin (password already changed) and two active users.
 HASH=$($PHP -r 'echo password_hash("Passw0rd-e2e", PASSWORD_DEFAULT);')
 $MYSQL -e "UPDATE users SET password_hash='$HASH', must_change_password=0 WHERE username='admin';
   INSERT INTO users (username,password_hash,role,name,firm_name,rep_name,contact,status) VALUES
-  ('uzair','$HASH','vendor','Uzair Khan','Uzair Caterers','Uzair Khan','0312-2159834','active'),
-  ('bilal','$HASH','vendor','Bilal Ahmed','Bilal Events','Bilal Ahmed','0300-1111111','active');"
-VENDOR_ID=$($MYSQL -e "SELECT id FROM users WHERE username='uzair'")
+  ('uzair','$HASH','user','Uzair Khan','Uzair Caterers','Uzair Khan','0312-2159834','active'),
+  ('bilal','$HASH','user','Bilal Ahmed','Bilal Events','Bilal Ahmed','0300-1111111','active');"
+USER_ID=$($MYSQL -e "SELECT id FROM users WHERE username='uzair'")
 LAWN_A=$($MYSQL -e "SELECT id FROM venues WHERE name='Lawn A'")
 VENUE_CHARGE=$($MYSQL -e "SELECT id FROM item_catalog WHERE name='Venue Charges'")
 TRACING=$($MYSQL -e "SELECT id FROM item_catalog WHERE section='charge' AND unit='per unit' LIMIT 1")
@@ -39,10 +39,10 @@ login v uzair Passw0rd-e2e
 login a admin Passw0rd-e2e
 csrf v /booking/form.php
 contains "assigned on first save" "new form has no SLA number yet"
-contains "Uzair Caterers" "vendor snapshot pre-filled from the profile"
+contains "Uzair Caterers" "user snapshot pre-filled from the profile"
 csrf a /booking/form.php
 req a POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=Ayesha Siddiqui" "client_cnic=4210112345671" \
-  "vendor_id=$VENDOR_ID" \
+  "user_id=$USER_ID" \
   "event_type=Valima" "event_date=2026-12-20" "venue_id=$LAWN_A" "guests=200" "per_head_rate=1,500" "discount=5000" \
   "lines[c$VENUE_CHARGE][present]=1" "lines[c$VENUE_CHARGE][selected]=1" "lines[c$VENUE_CHARGE][rate]=50,000" \
   "lines[c$TRACING][present]=1" "lines[c$TRACING][selected]=1" "lines[c$TRACING][rate]=300" "lines[c$TRACING][qty]=10" \
@@ -78,7 +78,7 @@ expect "$DB" "Ayesha Siddiqui|250|2" "stale save changed nothing"
 
 echo "== Validation keeps the input"
 csrf a "/booking/form.php?id=$ID"
-req a POST /booking/save.php "_csrf=$TOKEN" "id=$ID" "version=2" "client_name=Ayesha Siddiqui" "vendor_id=$VENDOR_ID" "guests=-5" "per_head_rate=abc" "event_date=2026-02-30"
+req a POST /booking/save.php "_csrf=$TOKEN" "id=$ID" "version=2" "client_name=Ayesha Siddiqui" "user_id=$USER_ID" "guests=-5" "per_head_rate=abc" "event_date=2026-02-30"
 expect "$CODE" "422" "invalid values rejected"
 contains "Estimated guests: Enter a whole number" "guests error shown"
 contains "Per-head rate: Enter an amount" "rate error shown"
@@ -88,14 +88,14 @@ expect "$($MYSQL -e "SELECT version FROM bookings WHERE id=$ID")" "2" "nothing w
 
 echo "== Access rules"
 login o bilal Passw0rd-e2e
-req o GET "/booking/form.php?id=$ID";  expect "$CODE" "404" "another vendor gets 404 on the form"
+req o GET "/booking/form.php?id=$ID";  expect "$CODE" "404" "another user gets 404 on the form"
 csrf o /booking/form.php
-req o POST /booking/save.php "_csrf=$TOKEN" "id=$ID" "version=2" "client_name=Hijack"; expect "$CODE" "404" "another vendor gets 404 on save"
-req o GET /booking/list.php; lacks "Ayesha" "another vendor's registry doesn't list it"
+req o POST /booking/save.php "_csrf=$TOKEN" "id=$ID" "version=2" "client_name=Hijack"; expect "$CODE" "404" "another user gets 404 on save"
+req o GET /booking/list.php; lacks "Ayesha" "another user's registry doesn't list it"
 req o GET "/booking/form.php?id=999999"; expect "$CODE" "404" "missing booking is the same 404"
 login a admin Passw0rd-e2e
 req a GET "/booking/form.php?id=$ID"; expect "$CODE" "200" "admin opens any booking"
-contains "Uzair Caterers — Uzair Khan (uzair)" "admin sees the vendor dropdown"
+contains "Uzair Caterers — Uzair Khan (uzair)" "admin sees the user dropdown"
 req a GET /booking/list.php; contains "SLA-$YEAR-0001" "admin registry lists the booking"
 
 echo "== Venue warning (drafts only warn)"
@@ -106,15 +106,15 @@ req a GET "/booking/form.php?id=$ID2"
 contains "Lawn A also has another draft booking on 20 Dec 2026 (SLA-$YEAR-0001)" "admin sees the clash with the SLA number"
 contains "SLA-$YEAR-0002" "second booking saved despite the clash (drafts never block)"
 req v GET "/booking/form.php?id=$ID"
-contains "Lawn A also has another draft booking on 20 Dec 2026." "vendor sees the clash"
-lacks "(SLA-$YEAR-0002)" "vendor isn't shown the other booking's number"
+contains "Lawn A also has another draft booking on 20 Dec 2026." "user sees the clash"
+lacks "(SLA-$YEAR-0002)" "user isn't shown the other booking's number"
 
 echo "== Confirmed bookings are read-only in Phase 3"
 $MYSQL -e "UPDATE bookings SET status='confirmed' WHERE id=$ID"
-req v GET "/booking/form.php?id=$ID"; contains "is confirmed and can no longer be edited" "vendor sees a read-only confirmed booking"
+req v GET "/booking/form.php?id=$ID"; contains "is confirmed and can no longer be edited" "user sees a read-only confirmed booking"
 lacks "Save Changes" "no save button"
 csrf v "/booking/form.php?id=$ID"
-req v POST /booking/save.php "_csrf=$TOKEN" "id=$ID" "version=2" "client_name=Late change"; expect "$CODE" "404" "vendor save on a confirmed booking: 404"
+req v POST /booking/save.php "_csrf=$TOKEN" "id=$ID" "version=2" "client_name=Late change"; expect "$CODE" "404" "user save on a confirmed booking: 404"
 
 echo "== Audit"
 $MYSQL -e "SELECT action, COUNT(*) FROM audit_log WHERE booking_id IS NOT NULL GROUP BY action"

@@ -29,7 +29,7 @@ $actions = $isAdmin || $canDelete;
   <p>
     <a class="btn" href="<?= h(url('documents/agreement.php?id=' . (int) $booking['id'])) ?>">SLA agreement</a>
     <a class="btn" href="<?= h(url('documents/invoice.php?id=' . (int) $booking['id'])) ?>">Customer invoice</a>
-    <a class="btn" href="<?= h(url('documents/vendor_sheet.php?id=' . (int) $booking['id'])) ?>">Operations sheet</a>
+    <a class="btn" href="<?= h(url('documents/ops_sheet.php?id=' . (int) $booking['id'])) ?>">Operations sheet</a>
   </p>
 </div>
 <?php if ($booking['status'] === 'cancelled'): ?>
@@ -54,8 +54,8 @@ $actions = $isAdmin || $canDelete;
     <form method="post" action="<?= h(url('booking/confirm.php')) ?>" class="action-box">
       <?= $ref ?>
       <h4>Confirm</h4>
-      <p class="muted">Issues the SLA. Needs an active vendor, client name, event date, venue and a net amount above Rs. 0.
-        After confirming, vendors can only view and print it.</p>
+      <p class="muted">Issues the SLA. Needs an active user, client name, event date, venue and a net amount above Rs. 0.
+        After confirming, users can only view and print it.</p>
 <?php $terms = commercial_terms_notices($booking); if ($terms): ?>
       <div class="terms-check">
         <p class="terms-check-head">Check these terms before issuing</p>

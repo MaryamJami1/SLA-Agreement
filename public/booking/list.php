@@ -70,8 +70,8 @@ $st = $pdo->prepare("SELECT b.id, b.unique_id, b.revision, b.status, b.client_na
 $st->execute($params);
 $rows = $st->fetchAll();
 
-$pendingVendors = $user['role'] === 'admin'
-    ? (int) $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'vendor' AND status = 'pending'")->fetchColumn()
+$pendingUsers = $user['role'] === 'admin'
+    ? (int) $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'user' AND status = 'pending'")->fetchColumn()
     : 0;
 
 $pageUrl = static function (int $p) use ($q, $status): string {
@@ -87,8 +87,8 @@ require APP_ROOT . '/app/views/layout_top.php';
   <a class="btn primary" href="<?= h(url('booking/form.php')) ?>">+ New Booking</a>
 </div>
 
-<?php if ($pendingVendors > 0): ?>
-<div class="flash info"><strong><?= $pendingVendors ?></strong> vendor account(s) are waiting for approval.
+<?php if ($pendingUsers > 0): ?>
+<div class="flash info"><strong><?= $pendingUsers ?></strong> user account(s) are waiting for approval.
   <a href="<?= h(url('admin/approvals.php')) ?>">Review approvals</a></div>
 <?php endif; ?>
 
@@ -129,21 +129,7 @@ require APP_ROOT . '/app/views/layout_top.php';
 <?php if (!$rows): ?>
   <div class="card empty-note"><?= $total === 0 && $q === '' && $status === '' ? 'No bookings yet. Click “+ New Booking” to start the register.' : 'No bookings match.' ?></div>
 <?php else: ?>
-<?php
-// "in 5 days" / "today" beside an upcoming event, so what needs attention stands out.
-$today = new DateTimeImmutable('today');
-$whenHint = static function (?string $date) use ($today): string {
-    if (!$date) {
-        return '';
-    }
-    $days = (int) $today->diff(new DateTimeImmutable($date))->format('%r%a');
-    if ($days < 0)   { return ''; }
-    if ($days === 0) { return '<span class="due-chip now">today</span>'; }
-    if ($days === 1) { return '<span class="due-chip now">tomorrow</span>'; }
-    if ($days <= 14) { return '<span class="due-chip soon">in ' . $days . ' days</span>'; }
-    return '';
-};
-?>
+<?php $today = new DateTimeImmutable('today'); ?>
 <div class="card table-scroll">
 <table class="registry reg-table">
   <thead><tr><th>Booking</th><th>Client</th><th>Event</th>
@@ -157,11 +143,11 @@ $whenHint = static function (?string $date) use ($today): string {
       </td>
       <td>
         <div class="reg-primary"><?= h($b['client_name']) ?></div>
-        <div class="hint"><?= h($b['firm_name'] ?: 'No vendor assigned') ?></div>
+        <div class="hint"><?= h($b['firm_name'] ?: 'No user assigned') ?></div>
       </td>
       <td>
 <?php if ($b['event_date']): ?>
-        <div class="reg-primary"><?= h(date('d M Y', strtotime($b['event_date']))) ?> <?= $whenHint($b['event_date']) ?></div>
+        <div class="reg-primary"><?= h(date('d M Y', strtotime($b['event_date']))) ?> <?= event_when_chip($b['event_date'], $today) ?></div>
         <div class="hint"><?= h(date('D', strtotime($b['event_date']))) ?> · <?= h($b['venue'] ?? 'no venue') ?><?= trim((string) $b['venue_location']) !== '' ? ' — ' . h($b['venue_location']) : '' ?></div>
 <?php else: ?>
         <div class="reg-primary muted">Date not set</div>

@@ -1,0 +1,14 @@
+# Fallback for hosts where the whole project sits inside the web root (e.g. public_html/event/).
+# Every request is served from public/, so app/, config/, database/, docs/, menu/ and storage/
+# are never reachable. Needs ALLOW_APP_IN_WEBROOT => true in config/config.php.
+Options -Indexes
+
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{REQUEST_URI} !/public/
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>

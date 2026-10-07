@@ -139,6 +139,12 @@ function load_current_user(PDO $pdo): ?array
     return $user;
 }
 
+/** Where a signed-in user starts: the dashboard for an admin, the registry for a user. */
+function home_path(array $user): string
+{
+    return $user['role'] === 'admin' ? 'admin/dashboard.php' : 'booking/list.php';
+}
+
 function require_login(): array
 {
     $user = current_user();

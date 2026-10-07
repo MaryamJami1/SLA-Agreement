@@ -27,22 +27,22 @@ looks right on paper, and that the whole thing behaves for real people.
 - [ ] The seeded admin had to change its password at first sign-in.
 - [ ] Six wrong passwords in a row give the lockout message; the attempts appear in `login_attempts`.
 
-## B. Vendors
+## B. Users
 
-- [ ] A new vendor registers from the sign-in page and is told to wait for approval.
-- [ ] That vendor cannot sign in until approved.
+- [ ] A new user registers from the sign-in page and is told to wait for approval.
+- [ ] That user cannot sign in until approved.
 - [ ] After approval they can sign in, and see only their own bookings.
-- [ ] Disabling a signed-in vendor signs them out on their next click.
-- [ ] A password reset shows a temporary password once, and the vendor must change it at next sign-in.
+- [ ] Disabling a signed-in user signs them out on their next click.
+- [ ] A password reset shows a temporary password once, and the user must change it at next sign-in.
 
 ## C. A real booking, end to end
 
-- [ ] Create a booking as a vendor; the first one of the year is `SLA-YYYY-0001`.
+- [ ] Create a booking as a user; the first one of the year is `SLA-YYYY-0001`.
 - [ ] Reopen and edit it; the totals match: per-head × guests + charges − discount.
 - [ ] Two browser tabs editing the same booking: the second save is refused, nothing is lost.
 - [ ] Two drafts for the same venue and date both warn; the first can still be confirmed, the second
       is then blocked unless the admin gives an override reason.
-- [ ] Confirm the booking as the admin; the vendor can now only view and print it.
+- [ ] Confirm the booking as the admin; the user can now only view and print it.
 - [ ] Record two payments, then void one: the balance goes back up.
 - [ ] Overpay the booking: the balance shows as overpaid.
 - [ ] Amend a confirmed booking (change guests): a reason is required, the signed copy must be on file,
@@ -67,8 +67,8 @@ looks right on paper, and that the whole thing behaves for real people.
 - [ ] Upload a PDF and a photo to a draft; both download correctly.
 - [ ] Upload a `.php` file renamed to `.pdf`: refused.
 - [ ] Upload something larger than 5 MB: refused with a clear message.
-- [ ] A vendor cannot open another vendor's attachment (404).
-- [ ] Voiding a file hides it from the vendor and makes the amendment check ask for a new signed copy.
+- [ ] A user cannot open another user's attachment (404).
+- [ ] Voiding a file hides it from the user and makes the amendment check ask for a new signed copy.
 
 ## F. Admin data
 
@@ -83,7 +83,7 @@ looks right on paper, and that the whole thing behaves for real people.
 - [ ] `storage/uploads/` is included in whatever backup routine is agreed.
 - [ ] The admin password and the database credentials are stored somewhere safe (not only in email).
 - [ ] Booking Organizer has been shown: the registry, creating and confirming a booking, recording a payment,
-      printing the three documents, and approving a vendor.
+      printing the three documents, and approving a user.
 
 ## H. Open questions to settle with Booking Organizer
 

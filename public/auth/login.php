@@ -39,6 +39,6 @@ require APP_ROOT . '/app/views/layout_top.php';
   </form>
 
   <p class="login-error"><?= h($error) ?></p>
-  <p class="login-switch">New vendor? <a href="<?= h(url('auth/register.php')) ?>">Create an account</a></p>
+  <p class="login-switch">New user? <a href="<?= h(url('auth/register.php')) ?>">Create an account</a></p>
 </div>
 <?php require APP_ROOT . '/app/views/layout_bottom.php';

@@ -97,8 +97,8 @@ if ($seed) {
 }
 $admins = (int) $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND status = 'active'")->fetchColumn();
 $yesNo($admins >= 1, 'Accounts', 'An active admin exists', "$admins active admin(s)", 'no active admin — you would be locked out');
-$pending = (int) $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'vendor' AND status = 'pending'")->fetchColumn();
-$add('Accounts', 'Vendors waiting for approval', $pending > 0 ? 'warn' : 'pass', $pending > 0 ? "$pending waiting" : 'none waiting');
+$pending = (int) $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'user' AND status = 'pending'")->fetchColumn();
+$add('Accounts', 'Users waiting for approval', $pending > 0 ? 'warn' : 'pass', $pending > 0 ? "$pending waiting" : 'none waiting');
 
 $counts = ['pass' => 0, 'warn' => 0, 'fail' => 0];
 foreach ($checks as $group) {

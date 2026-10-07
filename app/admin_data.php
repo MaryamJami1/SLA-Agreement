@@ -234,60 +234,350 @@ function update_catalog_item(PDO $pdo, array $admin, int $itemId, array $data): 
 }
 
 // ---------------------------------------------------------------------------
-// Vendor accounts
+// Menu types (the booking form's Menu Type dropdown)
 //
-// Shared by the Vendors page and the Approvals page, so both screens apply exactly the same rules.
+// Bookings store the chosen name as text, so renaming or retiring a menu type never changes an
+// existing booking. "Other" is built into the form, so it can't be created here.
+// ---------------------------------------------------------------------------
+
+function menu_types_with_usage(PDO $pdo): array
+{
+    return $pdo->query('SELECT m.id, m.name, m.is_active, m.sort_order,
+                               (SELECT COUNT(*) FROM bookings b WHERE b.menu_type = m.name) AS bookings
+                          FROM menu_types m ORDER BY m.sort_order, m.name')->fetchAll();
+}
+
+/** Validate a menu type name. @throws AdminRefused */
+function clean_menu_type_name($raw): string
+{
+    $name = clean_name($raw, 100, 'menu type name');
+    if (strcasecmp($name, 'Other') === 0) {
+        throw new AdminRefused('“Other” is always offered on the form, so it can\'t be added as a menu type.');
+    }
+    return $name;
+}
+
+function create_menu_type(PDO $pdo, array $admin, $nameRaw, $sortRaw): string
+{
+    $name = clean_menu_type_name($nameRaw);
+    $sort = clean_sort_order($sortRaw);
+    try {
+        return db_transaction(static function (PDO $pdo) use ($admin, $name, $sort) {
+            $pdo->prepare('INSERT INTO menu_types (name, is_active, sort_order) VALUES (?, 1, ?)')->execute([$name, $sort]);
+            audit($pdo, 'catalog_change', (int) $admin['id'], null,
+                ['menu_type_id' => (int) $pdo->lastInsertId(), 'created' => ['name' => $name, 'sort_order' => $sort]]);
+            return $name;
+        }, $pdo);
+    } catch (PDOException $e) {
+        if ((int) ($e->errorInfo[1] ?? 0) === 1062) {
+            throw new AdminRefused("There is already a menu type called “{$name}”.");
+        }
+        throw $e;
+    }
+}
+
+/** Rename, re-sort or retire a menu type. Existing bookings keep the name they stored. */
+function update_menu_type(PDO $pdo, array $admin, int $id, $nameRaw, bool $isActive, $sortRaw): string
+{
+    $name = clean_menu_type_name($nameRaw);
+    $sort = clean_sort_order($sortRaw);
+    try {
+        return db_transaction(static function (PDO $pdo) use ($admin, $id, $name, $isActive, $sort) {
+            $st = $pdo->prepare('SELECT * FROM menu_types WHERE id = ? FOR UPDATE');
+            $st->execute([$id]);
+            $row = $st->fetch();
+            if (!$row) {
+                throw new AdminRefused('That menu type no longer exists.');
+            }
+            $pdo->prepare('UPDATE menu_types SET name = ?, is_active = ?, sort_order = ? WHERE id = ?')
+                ->execute([$name, $isActive ? 1 : 0, $sort, $id]);
+            $changed = [];
+            foreach (['name' => $name, 'is_active' => $isActive ? 1 : 0, 'sort_order' => $sort] as $field => $value) {
+                if ((string) $row[$field] !== (string) $value) {
+                    $changed[$field] = [$row[$field], $value];
+                }
+            }
+            if ($changed) {
+                audit($pdo, 'catalog_change', (int) $admin['id'], null, ['menu_type_id' => $id, 'changed' => $changed]);
+            }
+            return $row['name'];
+        }, $pdo);
+    } catch (PDOException $e) {
+        if ((int) ($e->errorInfo[1] ?? 0) === 1062) {
+            throw new AdminRefused("There is already a menu type called “{$name}”.");
+        }
+        throw $e;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Form options (Stage, Entrance, Lighting and Floor Covering dropdowns; see FORM_OPTION_LISTS)
+//
+// Same rules as menu types: bookings store the chosen name as text, and "Other" is built in.
+// ---------------------------------------------------------------------------
+
+/** @return array<string, array> list key => rows (id, name, is_active, sort_order, bookings) */
+function form_options_with_usage(PDO $pdo): array
+{
+    $byList = [];
+    foreach (FORM_OPTION_LISTS as $list => [$column]) {
+        // $column comes from the FORM_OPTION_LISTS constant, never from input.
+        $st = $pdo->prepare("SELECT o.id, o.name, o.is_active, o.sort_order,
+                                    (SELECT COUNT(*) FROM bookings b WHERE b.`$column` = o.name) AS bookings
+                               FROM form_options o WHERE o.list_key = ? ORDER BY o.sort_order, o.name");
+        $st->execute([$list]);
+        $byList[$list] = $st->fetchAll();
+    }
+    return $byList;
+}
+
+/**
+ * Save the standard refund policy that new bookings start with. An empty box clears that default.
+ * Bookings that already exist keep their own terms.
+ *
+ * @throws AdminRefused
+ */
+function set_booking_defaults(PDO $pdo, array $admin, array $post): void
+{
+    $new = [];
+    foreach (BOOKING_DEFAULT_FIELDS as $field => $label) {
+        try {
+            $hundredths = parse_percent(is_string($post[$field] ?? null) ? $post[$field] : '');
+        } catch (InvalidInput $e) {
+            throw new AdminRefused("$label: " . $e->getMessage());
+        }
+        $new[$field] = $hundredths === null ? null : paisa_to_decimal($hundredths);
+    }
+    db_transaction(static function (PDO $pdo) use ($admin, $new) {
+        $before = booking_defaults($pdo);
+        $changed = [];
+        $upsert = $pdo->prepare('INSERT INTO booking_defaults (field, value) VALUES (?, ?)
+                                 ON DUPLICATE KEY UPDATE value = VALUES(value)');
+        foreach ($new as $field => $value) {
+            $upsert->execute([$field, $value]);
+            if ($before[$field] !== $value) {
+                $changed[$field] = [$before[$field], $value];
+            }
+        }
+        if ($changed) {
+            audit($pdo, 'catalog_change', (int) $admin['id'], null, ['booking_defaults' => true, 'changed' => $changed]);
+        }
+    }, $pdo);
+}
+
+/** Show or hide one dropdown on the booking form. Bookings that already have a value keep it. */
+function set_form_section_shown(PDO $pdo, array $admin, string $list, bool $shown): string
+{
+    if (!isset(FORM_OPTION_LISTS[$list])) {
+        throw new AdminRefused('Unknown option list.');
+    }
+    return db_transaction(static function (PDO $pdo) use ($admin, $list, $shown) {
+        $st = $pdo->prepare('SELECT is_shown FROM form_sections WHERE list_key = ? FOR UPDATE');
+        $st->execute([$list]);
+        $before = $st->fetchColumn();
+        $pdo->prepare('INSERT INTO form_sections (list_key, is_shown) VALUES (?, ?)
+                       ON DUPLICATE KEY UPDATE is_shown = VALUES(is_shown)')->execute([$list, $shown ? 1 : 0]);
+        if ($before === false || (int) $before !== ($shown ? 1 : 0)) {
+            audit($pdo, 'catalog_change', (int) $admin['id'], null,
+                ['form_section' => $list, 'changed' => ['is_shown' => [$before === false ? 1 : (int) $before, $shown ? 1 : 0]]]);
+        }
+        return FORM_OPTION_LISTS[$list][1];
+    }, $pdo);
+}
+
+/** @throws AdminRefused */
+function clean_form_option_name($raw): string
+{
+    $name = clean_name($raw, 100, 'option name');
+    if (strcasecmp($name, 'Other') === 0) {
+        throw new AdminRefused('“Other” is always offered on the form, so it can\'t be added as an option.');
+    }
+    return $name;
+}
+
+function create_form_option(PDO $pdo, array $admin, string $list, $nameRaw, $sortRaw): string
+{
+    if (!isset(FORM_OPTION_LISTS[$list])) {
+        throw new AdminRefused('Unknown option list.');
+    }
+    $name = clean_form_option_name($nameRaw);
+    $sort = clean_sort_order($sortRaw);
+    try {
+        return db_transaction(static function (PDO $pdo) use ($admin, $list, $name, $sort) {
+            $pdo->prepare('INSERT INTO form_options (list_key, name, is_active, sort_order) VALUES (?, ?, 1, ?)')
+                ->execute([$list, $name, $sort]);
+            audit($pdo, 'catalog_change', (int) $admin['id'], null,
+                ['form_option_id' => (int) $pdo->lastInsertId(), 'list' => $list, 'created' => ['name' => $name, 'sort_order' => $sort]]);
+            return $name;
+        }, $pdo);
+    } catch (PDOException $e) {
+        if ((int) ($e->errorInfo[1] ?? 0) === 1062) {
+            throw new AdminRefused("“{$name}” is already in that list.");
+        }
+        throw $e;
+    }
+}
+
+/** Rename, re-sort or retire an option. Existing bookings keep the name they stored. */
+function update_form_option(PDO $pdo, array $admin, int $id, $nameRaw, bool $isActive, $sortRaw): string
+{
+    $name = clean_form_option_name($nameRaw);
+    $sort = clean_sort_order($sortRaw);
+    try {
+        return db_transaction(static function (PDO $pdo) use ($admin, $id, $name, $isActive, $sort) {
+            $st = $pdo->prepare('SELECT * FROM form_options WHERE id = ? FOR UPDATE');
+            $st->execute([$id]);
+            $row = $st->fetch();
+            if (!$row) {
+                throw new AdminRefused('That option no longer exists.');
+            }
+            $pdo->prepare('UPDATE form_options SET name = ?, is_active = ?, sort_order = ? WHERE id = ?')
+                ->execute([$name, $isActive ? 1 : 0, $sort, $id]);
+            $changed = [];
+            foreach (['name' => $name, 'is_active' => $isActive ? 1 : 0, 'sort_order' => $sort] as $field => $value) {
+                if ((string) $row[$field] !== (string) $value) {
+                    $changed[$field] = [$row[$field], $value];
+                }
+            }
+            if ($changed) {
+                audit($pdo, 'catalog_change', (int) $admin['id'], null,
+                    ['form_option_id' => $id, 'list' => $row['list_key'], 'changed' => $changed]);
+            }
+            return $row['name'];
+        }, $pdo);
+    } catch (PDOException $e) {
+        if ((int) ($e->errorInfo[1] ?? 0) === 1062) {
+            throw new AdminRefused("“{$name}” is already in that list.");
+        }
+        throw $e;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// User accounts
+//
+// Shared by the Users page and the Approvals page, so both screens apply exactly the same rules.
 // ---------------------------------------------------------------------------
 
 /** Allowed status changes: action => [statuses it can start from, new status, audit action]. */
-const VENDOR_TRANSITIONS = [
-    'approve' => [['pending', 'disabled'], 'active', 'vendor_approve'],
-    'disable' => [['pending', 'active'], 'disabled', 'vendor_disable'],
+const USER_TRANSITIONS = [
+    'approve' => [['pending', 'disabled'], 'active', 'user_approve'],
+    'disable' => [['pending', 'active'], 'disabled', 'user_disable'],
 ];
 
 /**
- * Approve, disable or reset the password of one vendor account, in a single transaction.
+ * Approve, disable, delete or reset the password of one user account, in a single transaction.
  *
  * @return array{0: string, 1: string, 2?: array{username: string, password: string}}
  *         [flash type, message] and, for a password reset, the temporary password to show once.
  */
-function apply_vendor_action(PDO $pdo, array $admin, int $vendorId, string $action): array
+function apply_user_action(PDO $pdo, array $admin, int $userId, string $action): array
 {
-    return db_transaction(static function (PDO $pdo) use ($vendorId, $action, $admin) {
-        $st = $pdo->prepare("SELECT id, username, status FROM users WHERE id = ? AND role = 'vendor' FOR UPDATE");
-        $st->execute([$vendorId]);
-        $vendor = $st->fetch();
-        if (!$vendor) {
-            return ['error', 'That vendor account no longer exists.'];
+    return db_transaction(static function (PDO $pdo) use ($userId, $action, $admin) {
+        $st = $pdo->prepare("SELECT id, username, status FROM users WHERE id = ? AND role = 'user' FOR UPDATE");
+        $st->execute([$userId]);
+        $user = $st->fetch();
+        if (!$user) {
+            return ['error', 'That user account no longer exists.'];
         }
 
-        if (isset(VENDOR_TRANSITIONS[$action])) {
-            [$from, $to, $auditAction] = VENDOR_TRANSITIONS[$action];
-            if (!in_array($vendor['status'], $from, true)) {
-                return ['error', "“{$vendor['username']}” is {$vendor['status']}; that action doesn't apply."];
+        if (isset(USER_TRANSITIONS[$action])) {
+            [$from, $to, $auditAction] = USER_TRANSITIONS[$action];
+            if (!in_array($user['status'], $from, true)) {
+                return ['error', "“{$user['username']}” is {$user['status']}; that action doesn't apply."];
             }
-            $pdo->prepare('UPDATE users SET status = ? WHERE id = ?')->execute([$to, $vendorId]);
+            $pdo->prepare('UPDATE users SET status = ? WHERE id = ?')->execute([$to, $userId]);
             audit($pdo, $auditAction, (int) $admin['id'], null,
-                ['vendor_id' => $vendorId, 'username' => $vendor['username'], 'status' => [$vendor['status'], $to]]);
-            return ['ok', "“{$vendor['username']}” is now $to."];
+                ['user_id' => $userId, 'username' => $user['username'], 'status' => [$user['status'], $to]]);
+            return ['ok', "“{$user['username']}” is now $to."];
         }
 
         if ($action === 'reset') {
             $temp = generate_temp_password();
             $pdo->prepare('UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?')
-                ->execute([password_hash($temp, PASSWORD_DEFAULT), $vendorId]);
-            audit($pdo, 'password_reset', (int) $admin['id'], null, ['vendor_id' => $vendorId, 'username' => $vendor['username']]);
-            return ['ok', "Password reset for “{$vendor['username']}”.", ['username' => $vendor['username'], 'password' => $temp]];
+                ->execute([password_hash($temp, PASSWORD_DEFAULT), $userId]);
+            audit($pdo, 'password_reset', (int) $admin['id'], null, ['user_id' => $userId, 'username' => $user['username']]);
+            return ['ok', "Password reset for “{$user['username']}”.", ['username' => $user['username'], 'password' => $temp]];
+        }
+
+        if ($action === 'delete') {
+            // Only an account that never did anything can go: bookings, payments and files keep who made them.
+            if (user_record_count($pdo, $userId) > 0) {
+                return ['error', "“{$user['username']}” has bookings or other records, so it can't be deleted. Disable it instead."];
+            }
+            $pdo->prepare('DELETE FROM users WHERE id = ?')->execute([$userId]);
+            audit($pdo, 'user_delete', (int) $admin['id'], null, ['user_id' => $userId, 'username' => $user['username']]);
+            return ['ok', "“{$user['username']}” has been deleted."];
         }
 
         return ['error', 'Unknown action.'];
     }, $pdo);
 }
 
-/** Vendor accounts still waiting for a decision, oldest request first. */
-function pending_vendors(PDO $pdo): array
+/** How many bookings, payments and files point at this user (any of them blocks deleting the account). */
+function user_record_count(PDO $pdo, int $userId): int
+{
+    $st = $pdo->prepare('SELECT
+        (SELECT COUNT(*) FROM bookings WHERE ? IN (user_id, created_by, updated_by, cancelled_by))
+      + (SELECT COUNT(*) FROM payments WHERE ? IN (recorded_by, voided_by))
+      + (SELECT COUNT(*) FROM attachments WHERE ? IN (uploaded_by, voided_by))');
+    $st->execute([$userId, $userId, $userId]);
+    return (int) $st->fetchColumn();
+}
+
+/**
+ * Validate the admin's "Add user" form. Same fields and limits as the self-registration page.
+ *
+ * @return array{firm_name: string, rep_name: string, contact: string, username: string}
+ * @throws AdminRefused
+ */
+function clean_user_input(array $post): array
+{
+    $data = [
+        'firm_name' => clean_name($post['firm_name'] ?? '', 150, 'firm name'),
+        'rep_name'  => clean_name($post['rep_name'] ?? '', 100, 'representative name'),
+        'contact'   => clean_name($post['contact'] ?? '', 50, 'contact number'),
+        'username'  => normalize_username(is_string($post['username'] ?? null) ? $post['username'] : ''),
+    ];
+    if (!is_valid_username($data['username'])) {
+        throw new AdminRefused('Choose a username of 3–50 characters: letters, digits, dot, underscore or hyphen.');
+    }
+    return $data;
+}
+
+/**
+ * Create a user account on the admin's behalf. It is active straight away (an admin made it, so there is
+ * nothing to approve) and gets a temporary password the user must replace when they first sign in.
+ *
+ * @param array $data from clean_user_input()
+ * @return array{username: string, password: string} the temporary password, to show the admin once
+ * @throws AdminRefused when the username is taken
+ */
+function create_user(PDO $pdo, array $admin, array $data): array
+{
+    $temp = generate_temp_password();
+    try {
+        db_transaction(static function (PDO $pdo) use ($admin, $data, $temp) {
+            $pdo->prepare("INSERT INTO users (username, password_hash, role, name, firm_name, rep_name, contact, status, must_change_password)
+                           VALUES (?, ?, 'user', ?, ?, ?, ?, 'active', 1)")
+                ->execute([$data['username'], password_hash($temp, PASSWORD_DEFAULT), $data['rep_name'],
+                    $data['firm_name'], $data['rep_name'], $data['contact']]);
+            $id = (int) $pdo->lastInsertId();
+            audit($pdo, 'user_create', (int) $admin['id'], null, ['user_id' => $id] + $data);
+        }, $pdo);
+    } catch (PDOException $e) {
+        if ((int) ($e->errorInfo[1] ?? 0) !== 1062) { // 1062 = duplicate key: the username is taken
+            throw $e;
+        }
+        throw new AdminRefused("The username “{$data['username']}” is already taken. Please choose another.");
+    }
+    return ['username' => $data['username'], 'password' => $temp];
+}
+
+/** User accounts still waiting for a decision, oldest request first. */
+function pending_users(PDO $pdo): array
 {
     return $pdo->query("SELECT id, username, name, firm_name, rep_name, contact, created_at
-                          FROM users WHERE role = 'vendor' AND status = 'pending'
+                          FROM users WHERE role = 'user' AND status = 'pending'
                          ORDER BY created_at, username")->fetchAll();
 }

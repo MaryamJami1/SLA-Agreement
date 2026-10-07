@@ -37,7 +37,7 @@ if (($argv[1] ?? '') === 'worker') {
         } else { // amend: move the booking to another venue
             $b = $pdo->query('SELECT * FROM bookings WHERE id = ' . (int) $args['id'])->fetch();
             $fields = array_intersect_key($b, booking_field_specs());
-            $fields['vendor_id'] = (int) $b['vendor_id'];
+            $fields['user_id'] = (int) $b['user_id'];
             $fields['venue_id'] = $args['venue_id'];
             $fields['venue_other'] = null;
             $r = save_booking_confirmed($pdo, $admin, (int) $b['id'], (int) $b['version'], $fields, [], 'Swap venues', '');
@@ -85,16 +85,16 @@ foreach (['schema.sql', 'seed.sql'] as $file) {
     }
 }
 $pdo->exec("INSERT INTO users (username, password_hash, role, name, firm_name, rep_name, contact, status)
-            VALUES ('racevendor', 'x', 'vendor', 'Race Vendor', 'Race Firm', 'Race Rep', '0300', 'active')");
-$vendorId = (int) $pdo->lastInsertId();
+            VALUES ('raceuser', 'x', 'user', 'Race User', 'Race Firm', 'Race Rep', '0300', 'active')");
+$userId = (int) $pdo->lastInsertId();
 $adminId = (int) $pdo->query("SELECT id FROM users WHERE username = 'admin'")->fetchColumn();
 $venue = static fn(string $name): int => (int) $pdo->query('SELECT id FROM venues WHERE name = ' . $pdo->quote($name))->fetchColumn();
 $seq = 0;
-$makeBooking = static function (int $venueId, string $date, string $status) use ($pdo, $vendorId, $adminId, &$seq): int {
+$makeBooking = static function (int $venueId, string $date, string $status) use ($pdo, $userId, $adminId, &$seq): int {
     $seq++;
-    $pdo->prepare("INSERT INTO bookings (unique_id, vendor_id, created_by, status, client_name, event_date, venue_id, guests, per_head_rate)
+    $pdo->prepare("INSERT INTO bookings (unique_id, user_id, created_by, status, client_name, event_date, venue_id, guests, per_head_rate)
                    VALUES (?, ?, ?, ?, ?, ?, ?, 100, 1000.00)")
-        ->execute([sprintf('SLA-RACE-%04d', $seq), $vendorId, $adminId, $status, "Client $seq", $date, $venueId]);
+        ->execute([sprintf('SLA-RACE-%04d', $seq), $userId, $adminId, $status, "Client $seq", $date, $venueId]);
     $id = (int) $pdo->lastInsertId();
     db_transaction(static fn(PDO $p) => recompute_booking_totals($p, $id), $pdo);
     return $id;

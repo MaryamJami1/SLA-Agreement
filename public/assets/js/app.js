@@ -10,6 +10,27 @@
     }
   });
 
+  // Capitalize the first letter of free-text fields as the user types.
+  // Skipped for email/password/url/etc.; opt out per field with data-no-caps.
+  document.addEventListener('input', function (e) {
+    var el = e.target;
+    if (!el || el.hasAttribute('data-no-caps')) { return; }
+    var isText = el.tagName === 'TEXTAREA' ||
+      (el.tagName === 'INPUT' && (el.type === 'text' || el.type === ''));
+    if (!isText || el.readOnly || el.disabled) { return; }
+    if (/email|e-mail|user(name)?|login|pass|url|website|code|token/i.test(el.name || '')) { return; }
+    if (el.autocomplete === 'email' || el.autocomplete === 'username') { return; }
+    var v = el.value;
+    var first = v.search(/\S/);
+    if (first < 0) { return; }
+    var ch = v.charAt(first);
+    var up = ch.toUpperCase();
+    if (ch === up || ch.toLowerCase() === ch.toUpperCase()) { return; }
+    var s = el.selectionStart, end = el.selectionEnd;
+    el.value = v.slice(0, first) + up + v.slice(first + 1);
+    try { el.setSelectionRange(s, end); } catch (err) { /* unsupported type */ }
+  });
+
   // ---- Alert dialog --------------------------------------------------------------------------
   // A warning the user must not scroll past — a venue already taken on that date — is shown as a
   // banner AND raised in a modal dialog, so it cannot be missed. The banner stays on the page once
@@ -101,49 +122,198 @@
     }
   });
 
+  // ---- Vendor service picker (Vendors pages) ----------------------------------------------------
+  // <div class="service-picker" data-follows="select-id"> holds one .service-group per category.
+  // Only the group of the chosen category is shown; the others are disabled so they don't post.
+  // Services the vendor already has (data-owned) stay ticked and locked.
+  document.addEventListener('DOMContentLoaded', function () {
+    Array.prototype.forEach.call(document.querySelectorAll('.service-picker'), function (picker) {
+      var select = picker.hasAttribute('data-follows') ? document.getElementById(picker.getAttribute('data-follows')) : null;
+      var empty = picker.querySelector('.service-picker-empty');
+
+      function show() {
+        var chosen = select.value;
+        Array.prototype.forEach.call(picker.querySelectorAll('.service-group'), function (group) {
+          var on = group.getAttribute('data-category') === chosen;
+          group.hidden = !on;
+          Array.prototype.forEach.call(group.querySelectorAll('input, select'), function (el) {
+            el.disabled = !on || el.hasAttribute('data-owned');
+          });
+        });
+        if (empty) { empty.hidden = chosen !== ''; }
+      }
+      if (select) {
+        select.addEventListener('change', show);
+        show();
+      }
+
+      picker.addEventListener('click', function (e) {
+        var btn = e.target.closest && e.target.closest('[data-tick]');
+        if (!btn) { return; }
+        var on = btn.getAttribute('data-tick') === 'all';
+        var group = btn.closest('.service-group');
+        Array.prototype.forEach.call(group.querySelectorAll('input[type=checkbox]:not([data-owned])'), function (box) {
+          box.checked = on;
+        });
+      });
+    });
+  });
+
+  // ---- Chart tooltips (Dashboard) ---------------------------------------------------------------
+  // Each column group on a chart has one full-height target carrying its figures in data-tip. The
+  // tooltip is a convenience: the same figures are in the target's label and in the table under the
+  // chart, so nothing here is the only way to read a value.
+  document.addEventListener('DOMContentLoaded', function () {
+    var targets = document.querySelectorAll('.chart-hit[data-tip]');
+    if (!targets.length) {
+      return;
+    }
+    var tip = document.createElement('div');
+    tip.className = 'chart-tip';
+    tip.setAttribute('role', 'status');
+    tip.hidden = true;
+    document.body.appendChild(tip);
+
+    function fill(target) {
+      var data;
+      try { data = JSON.parse(target.getAttribute('data-tip')); } catch (e) { return false; }
+      tip.textContent = '';
+      var title = document.createElement('p');
+      title.className = 'tip-title';
+      title.textContent = data.title;
+      tip.appendChild(title);
+      (data.rows || []).forEach(function (row) {
+        var line = document.createElement('div');
+        line.className = 'tip-row';
+        var key = document.createElement('span');
+        key.className = 'tip-key' + (row[0] ? ' ' + row[0] : '');
+        var name = document.createElement('span');
+        name.className = 'tip-name';
+        name.textContent = row[1];       // textContent throughout: labels are data, never markup
+        var value = document.createElement('span');
+        value.className = 'tip-value';
+        value.textContent = row[2];
+        line.appendChild(key);
+        line.appendChild(name);
+        line.appendChild(value);
+        tip.appendChild(line);
+      });
+      return true;
+    }
+    // Beside the pointer (or the column, for keyboard focus), flipped when it would leave the window.
+    function place(x, y) {
+      var gap = 14;
+      var w = tip.offsetWidth, h = tip.offsetHeight;
+      var left = x + gap + w > window.innerWidth ? x - gap - w : x + gap;
+      var top = y + gap + h > window.innerHeight ? y - gap - h : y + gap;
+      tip.style.left = Math.max(4, left) + 'px';
+      tip.style.top = Math.max(4, top) + 'px';
+    }
+    function hide() { tip.hidden = true; }
+
+    Array.prototype.forEach.call(targets, function (target) {
+      // The native <title> tooltip is the no-script fallback; with this one running it would double up.
+      var title = target.querySelector('title');
+      if (title) { title.remove(); }
+
+      function show(x, y) {
+        if (!fill(target)) { return; }
+        tip.hidden = false;
+        place(x, y);
+      }
+      target.addEventListener('pointerenter', function (e) { show(e.clientX, e.clientY); });
+      target.addEventListener('pointermove', function (e) {
+        if (tip.hidden) { show(e.clientX, e.clientY); } else { place(e.clientX, e.clientY); }
+      });
+      target.addEventListener('pointerleave', hide);
+      target.addEventListener('focus', function () {
+        var box = target.getBoundingClientRect();
+        show(box.right - 10, box.top + 8);
+      });
+      target.addEventListener('blur', hide);
+    });
+    window.addEventListener('scroll', hide, true);
+  });
+
+  // ---- Money parsing/formatting (display only; mirrors app/money.php) -------------------
+  function toPaisa(text) {
+    var s = String(text || '').trim().replace(/^rs\.?\s*/i, '').replace(/[,\s]/g, '');
+    var m = /^(\d+)(?:\.(\d{1,2}))?$/.exec(s);
+    if (!m) { return 0; }
+    return parseInt(m[1], 10) * 100 + parseInt((m[2] || '0').padEnd(2, '0'), 10);
+  }
+  function toInt(text) {
+    var s = String(text || '').replace(/,/g, '').trim();
+    return /^\d+$/.test(s) ? parseInt(s, 10) : 0;
+  }
+  function groupSouthAsian(digits) {
+    if (digits.length <= 3) { return digits; }
+    var last3 = digits.slice(-3);
+    var rest = digits.slice(0, -3).replace(/\B(?=(\d{2})+$)/g, ',');
+    return rest + ',' + last3;
+  }
+  function formatRs(paisa) {
+    var sign = paisa < 0 ? '-' : '';
+    var abs = Math.abs(paisa);
+    var out = 'Rs. ' + sign + groupSouthAsian(String(Math.floor(abs / 100)));
+    if (abs % 100) { out += '.' + String(abs % 100).padStart(2, '0'); }
+    return out;
+  }
+
+  // ---- Vendor service picker (booking page, admin) ----------------------------------------------
+  // Shows the unit and the price-list rate of the chosen service, starts per-person services at the
+  // guest count, and shows qty × rate. Display only: the server computes and stores the amount.
+  document.addEventListener('DOMContentLoaded', function () {
+    var form = document.getElementById('vendor-line-form');
+    if (!form) {
+      return;
+    }
+    var service = form.querySelector('#vl_service');
+    var unit = form.querySelector('#vl_unit');
+    var qty = form.querySelector('#vl_qty');
+    var rate = form.querySelector('#vl_rate');
+    var amount = form.querySelector('#vl_amount');
+    var guests = parseInt(form.getAttribute('data-guests') || '0', 10);
+
+    function recalc() {
+      var opt = service.options[service.selectedIndex];
+      amount.value = opt && opt.value ? formatRs(toInt(qty.value) * toPaisa(opt.getAttribute('data-rate') || '')) : '';
+    }
+    service.addEventListener('change', function () {
+      var opt = service.options[service.selectedIndex];
+      unit.value = opt && opt.value ? opt.getAttribute('data-unit') : '';
+      rate.value = opt && opt.value ? formatRs(toPaisa(opt.getAttribute('data-rate') || '')) : '';
+      if (opt && opt.getAttribute('data-unit-key') === 'per person' && guests > 0) {
+        qty.value = String(guests);
+      }
+      recalc();
+    });
+    qty.addEventListener('input', recalc);
+  });
+
   document.addEventListener('DOMContentLoaded', function () {
     var form = document.getElementById('booking-form');
     if (!form) {
       return;
     }
 
-    // ---- Money parsing/formatting (display only; mirrors app/money.php) -------------------
-    function toPaisa(text) {
-      var s = String(text || '').trim().replace(/^rs\.?\s*/i, '').replace(/[,\s]/g, '');
-      var m = /^(\d+)(?:\.(\d{1,2}))?$/.exec(s);
-      if (!m) { return 0; }
-      return parseInt(m[1], 10) * 100 + parseInt((m[2] || '0').padEnd(2, '0'), 10);
-    }
-    function toInt(text) {
-      var s = String(text || '').replace(/,/g, '').trim();
-      return /^\d+$/.test(s) ? parseInt(s, 10) : 0;
-    }
-    function groupSouthAsian(digits) {
-      if (digits.length <= 3) { return digits; }
-      var last3 = digits.slice(-3);
-      var rest = digits.slice(0, -3).replace(/\B(?=(\d{2})+$)/g, ',');
-      return rest + ',' + last3;
-    }
-    function formatRs(paisa) {
-      var sign = paisa < 0 ? '-' : '';
-      var abs = Math.abs(paisa);
-      var out = 'Rs. ' + sign + groupSouthAsian(String(Math.floor(abs / 100)));
-      if (abs % 100) { out += '.' + String(abs % 100).padStart(2, '0'); }
-      return out;
-    }
     function field(name) { return form.elements.namedItem(name); }
     function setText(id, text) { var el = document.getElementById(id); if (el) { el.textContent = text; } }
 
     // ---- Live totals preview ---------------------------------------------------------------
+    // A user's form has no price inputs: the stored prices ride on data attributes instead.
+    function priceOf(name) {
+      return field(name) ? field(name).value : form.getAttribute('data-' + name.replace(/_rate$/, '').replace(/_/g, '-'));
+    }
     function recalc() {
       var guests = toInt(field('guests') && field('guests').value);
-      var guestCharges = toPaisa(field('per_head_rate') && field('per_head_rate').value) * guests;
+      var guestCharges = toPaisa(priceOf('per_head_rate')) * guests;
       var charges = 0;
       form.querySelectorAll('.charge-line').forEach(function (row) {
         var unit = row.getAttribute('data-unit');
         var selected = row.querySelector('input[type=checkbox]').checked;
         var rateInput = row.querySelector('input.rate');
-        var rate = rateInput ? toPaisa(rateInput.value) : 0;
+        var rate = toPaisa(rateInput ? rateInput.value : row.getAttribute('data-rate'));
         var qtyInput = row.querySelector('input.qty');
         var amount = 0;
         if (selected) {
@@ -155,15 +325,31 @@
         var amountCell = row.querySelector('.line-amount');
         if (amountCell) { amountCell.textContent = formatRs(amount); }
       });
+      // Extra dishes on the menu: the rate typed on the booking (admin), else the one the form shows.
+      form.querySelectorAll('input[name="menu_extra[]"]:checked').forEach(function (box) {
+        var rateBox = form.querySelector('input[name="menu_extra_rate[' + box.value + ']"]');
+        var rate = toPaisa(rateBox ? rateBox.value : box.getAttribute('data-rate'));
+        charges += box.getAttribute('data-unit') === 'fixed' ? rate : rate * guests;
+      });
       var sub = guestCharges + charges;
-      var grand = sub - toPaisa(field('discount') && field('discount').value);
+      var grand = sub - toPaisa(priceOf('discount'));
       setText('t-guest', formatRs(guestCharges));
       setText('t-guest2', formatRs(guestCharges));
       setText('t-charges', formatRs(charges));
       setText('t-sub', formatRs(sub));
       setText('t-grand', formatRs(grand));
       setText('guests-readout', String(guests));
+      // "n ticked" beside each closed group of Items to provide.
+      form.querySelectorAll('.item-group').forEach(function (group) {
+        var n = group.querySelectorAll('tr.charge-line input[type=checkbox]:checked').length;
+        var count = group.querySelector('.item-group-count');
+        if (count) { count.textContent = n ? n + ' ticked' : ''; }
+      });
     }
+    // Printing the sheet shows every group, open or not.
+    window.addEventListener('beforeprint', function () {
+      form.querySelectorAll('.item-group').forEach(function (group) { group.open = true; });
+    });
 
     // ---- "If Other, specify" fields --------------------------------------------------------
     function syncOther(select) {
@@ -194,6 +380,53 @@
       setText('event-day', day);
     }
 
+    // ---- Menu package -------------------------------------------------------------------------
+    // Every package's dishes are in the markup (so the form works without script); this shows only
+    // the chosen one. Choosing a priced package fills in its per-head rate (the server does the same
+    // for a user's form, which has no rate box), and a package's minimum guests is a warning only.
+    var menuSelect = field('menu_package_id');
+    var basePerHead = form.getAttribute('data-per-head') || '';
+    function chosenMenuOption() { return menuSelect && menuSelect.options[menuSelect.selectedIndex]; }
+    function syncMenuMin() {
+      var warn = document.getElementById('menu-min-warning');
+      var opt = chosenMenuOption();
+      if (!warn || !opt) { return; }
+      var min = parseInt(opt.getAttribute('data-min') || '0', 10);
+      var guests = toInt(field('guests') && field('guests').value);
+      warn.hidden = !(min > 0 && guests < min);
+      var unit = opt.getAttribute('data-unit') || 'guests';
+      warn.textContent = warn.hidden ? '' : 'This package is for at least ' + min + ' ' + unit + '; the booking has ' + guests + '.';
+    }
+    function syncMenu(applyRate) {
+      if (!menuSelect) { return; }
+      form.querySelectorAll('.menu-package').forEach(function (box) {
+        box.hidden = box.getAttribute('data-package') !== menuSelect.value;
+      });
+      var rate = chosenMenuOption() && chosenMenuOption().getAttribute('data-rate');
+      var rateBox = field('per_head_rate');
+      if (applyRate && rate && rateBox) {
+        rateBox.value = rate;
+      } else if (applyRate && !rateBox) {
+        // A user's form has no rate box: preview the package's rate, or the booking's own without one.
+        var perHead = rate || basePerHead;
+        form.setAttribute('data-per-head', perHead);
+        var readout = document.getElementById('per-head-readout');
+        if (readout) { readout.textContent = toPaisa(perHead) > 0 ? formatRs(toPaisa(perHead)) : 'set by Booking Organizer'; }
+      }
+      syncMenuMin();
+    }
+    if (menuSelect) {
+      syncMenu(false);
+      menuSelect.addEventListener('change', function () { syncMenu(true); });
+      if (field('guests')) { field('guests').addEventListener('input', syncMenuMin); }
+    }
+    form.querySelectorAll('.menu-extras').forEach(function (group) {
+      group.addEventListener('change', function () {
+        var n = group.querySelectorAll('input[type=checkbox]:checked').length;
+        group.querySelector('.menu-extra-count').textContent = n ? n + ' ticked' : '';
+      });
+    });
+
     form.querySelectorAll('select[data-other]').forEach(function (s) {
       s.addEventListener('change', function () { syncOther(s); });
     });
@@ -208,8 +441,8 @@
     form.addEventListener('change', recalc);
     if (field('event_date')) { field('event_date').addEventListener('change', syncDay); }
 
-    // ---- The wizard: five steps over one form -----------------------------------------------
-    // The sheet is one long form of ~16 sections, and it must stay one form: a single POST is what
+    // ---- The wizard: three steps over one form ----------------------------------------------
+    // The sheet is one long form of 7–9 sections, and it must stay one form: a single POST is what
     // reserves the SLA number and writes the totals. So the steps are presentation only — every
     // section stays in the DOM, and the `is-wizard` class added here (never in the markup) is what
     // hides the inactive ones. No script, no hiding: the whole agreement shows, just as it prints.
@@ -226,7 +459,8 @@
     function realInputs(block) {
       return Array.prototype.filter.call(
         block.querySelectorAll('input, select, textarea'),
-        function (el) { return el.type !== 'hidden' && el.name; });
+        // A menu package that isn't chosen is hidden; its pre-ticked choices aren't the user's entries.
+        function (el) { return el.type !== 'hidden' && el.name && !el.closest('[hidden]'); });
     }
     function filledCount(block) {
       return realInputs(block).filter(function (el) {

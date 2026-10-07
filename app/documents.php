@@ -1,7 +1,7 @@
 <?php
 /**
  * Printable documents (plan Section 8, "Documents after an amendment", and Section 12):
- * the SLA agreement, the customer invoice and the vendor operations sheet.
+ * the SLA agreement, the customer invoice and the user operations sheet.
  *
  * The pages print through the browser; there is no server-side PDF. The letterhead repeats on every
  * printed page because the layout wraps the page in a table with the letterhead in <thead>.
@@ -140,8 +140,9 @@ function invoice_description(array $booking, ?string $venue): string
 {
     $type = $booking['event_type'] === 'Other' ? dv($booking['event_type_other'], 'event') : dv($booking['event_type'], 'event');
     $menu = $booking['menu_type'] === 'Other' ? $booking['menu_type_other'] : $booking['menu_type'];
+    $menu = implode(', ', array_filter([$menu ? $menu . ' menu' : null, $booking['menu_package_name'] ?? null]));
     return 'Catering, decoration & event management services — ' . $type
-        . ($menu ? ' (' . $menu . ' menu)' : '')
+        . ($menu !== '' ? ' (' . $menu . ')' : '')
         . ' at ' . ($venue ?: 'Booking Organizer')
         . ($booking['event_date'] ? ' on ' . ddate($booking['event_date']) : '') . '.';
 }
@@ -174,6 +175,7 @@ function agreement_print_zoom(array $booking, array $decorSections): string
             $units += $wrap($booking[$field], 85) + 0.3;
         }
     }
+    $units += document_menu_lines($booking, 85, $row);
     if ($decorSections) {
         $units += 1.3;
         foreach ($decorSections as $items) {
@@ -186,6 +188,16 @@ function agreement_print_zoom(array $booking, array $decorSections): string
     }
 
     return document_print_zoom($units, 1.45);
+}
+
+/** Printed lines the booking's menu takes: a package row ($packageRow lines) and a row per category. */
+function document_menu_lines(array $booking, int $perLine, float $packageRow): float
+{
+    $lines = ($booking['menu_package_name'] ?? null) ? $packageRow : 0;
+    foreach (menu_selection_by_category($booking['menu_selection'] ?? null) as $labels) {
+        $lines += document_text_lines(implode(', ', $labels), $perLine) + 0.3;
+    }
+    return $lines;
 }
 
 /** Printed lines a text takes in a column about $perLine characters wide. */
@@ -227,8 +239,8 @@ function invoice_print_zoom(array $booking, array $d): string
     return document_print_zoom($units, 1.6);
 }
 
-/** As agreement_print_zoom(), for the vendor operations sheet. */
-function vendor_sheet_print_zoom(array $booking, array $d, array $decorSections): string
+/** As agreement_print_zoom(), for the user operations sheet. */
+function ops_sheet_print_zoom(array $booking, array $d, array $decorSections): string
 {
     $row = 1.3;
     $ops = $d['lines']['ops_item'] ?? [];
@@ -242,11 +254,28 @@ function vendor_sheet_print_zoom(array $booking, array $d, array $decorSections)
                 static fn($item) => $item['label'] . ($item['notes'] ? ' (' . $item['notes'] . ')' : ''), $items)), 85) + 0.3;
         }
     }
-    if ($booking['food_items'] || $booking['menu_type']) {
-        $units += 2.7 + ($booking['food_items'] ? document_text_lines($booking['food_items'], 110) : 0);
+    if ($booking['food_items'] || $booking['menu_type'] || ($booking['menu_package_name'] ?? null) || ($booking['menu_selection'] ?? null)) {
+        $units += 2.7 + ($booking['food_items'] ? document_text_lines($booking['food_items'], 110) : 0)
+            + document_menu_lines($booking, 85, 0);
     }
     if ($booking['special_commitments']) {
         $units += 1.5 + document_text_lines($booking['special_commitments'], 110);
     }
     return document_print_zoom($units, 1.45);
+}
+
+/** As agreement_print_zoom(), for a vendor invoice (from load_vendor_invoice()). */
+function vendor_invoice_print_zoom(array $invoice): string
+{
+    $row = 1.3;
+    $payments = count(array_filter($invoice['payments'], static fn($p) => $p['voided_at'] === null));
+    $totalRows = 2 + (decimal_to_paisa($invoice['discount']) > 0 ? 1 : 0) + (decimal_to_paisa($invoice['tax_amount']) > 0 ? 1 : 0);
+    $units = 3 + 1.5 + 6 + 1                                                 // title, the two boxes
+        + $row * (count($invoice['items']) + 1 + $totalRows)                  // items and totals
+        + 1.5 + ($payments ? $row * ($payments + 2) : 1.3)                    // "Payments made"
+        + 2.5 + 1.5 + 4.5 + 3;                                               // balance, words, signatures, footer
+    if ($invoice['notes']) {
+        $units += document_text_lines($invoice['notes'], 80);
+    }
+    return document_print_zoom($units, 1.6);
 }

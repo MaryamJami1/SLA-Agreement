@@ -8,13 +8,13 @@ SET time_zone = '+05:00';
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- ---------------------------------------------------------------------------
--- users: admins and vendors. status / must_change_password are re-read on every request.
+-- users: admins and users (the agents who book events for clients). status / must_change_password are re-read on every request.
 -- ---------------------------------------------------------------------------
 CREATE TABLE users (
   id                   INT UNSIGNED NOT NULL AUTO_INCREMENT,
   username             VARCHAR(50)  NOT NULL,
   password_hash        VARCHAR(255) NOT NULL,
-  role                 ENUM('admin','vendor') NOT NULL DEFAULT 'vendor',
+  role                 ENUM('admin','user') NOT NULL DEFAULT 'user',
   name                 VARCHAR(100) NOT NULL,
   firm_name            VARCHAR(150) NULL,
   rep_name             VARCHAR(100) NULL,
@@ -82,13 +82,121 @@ CREATE TABLE item_catalog (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
+-- menu_types: admin-managed options of the booking form's Menu Type dropdown ("Other" is built in).
+-- Bookings store the chosen name as text, so edits here never change history.
+-- ---------------------------------------------------------------------------
+CREATE TABLE menu_types (
+  id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  name       VARCHAR(100) NOT NULL,
+  is_active  TINYINT(1)   NOT NULL DEFAULT 1,
+  sort_order INT          NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_menu_types_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- Menus (Menus page): categories, the dish library, and priced packages built from dishes.
+-- Dishes in a package that share a choice_group are alternatives; the booking picks one.
+-- Bookings copy the package name and chosen dishes (bookings.menu_selection), so edits here never
+-- change history.
+-- ---------------------------------------------------------------------------
+CREATE TABLE menu_categories (
+  id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  name       VARCHAR(100) NOT NULL,
+  is_active  TINYINT(1)   NOT NULL DEFAULT 1,
+  sort_order INT          NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_menu_categories_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE menu_dishes (
+  id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  category_id INT UNSIGNED NOT NULL,
+  name        VARCHAR(150) NOT NULL,
+  is_live     TINYINT(1)   NOT NULL DEFAULT 0,      -- cooked at a live counter at the event
+  extra_rate  DECIMAL(12,2) NULL,                   -- price when added on top of a package (copied onto the booking)
+  extra_unit  ENUM('per head','fixed') NOT NULL DEFAULT 'per head',
+  is_active   TINYINT(1)   NOT NULL DEFAULT 1,
+  sort_order  INT          NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_menu_dishes_name (category_id, name),
+  KEY idx_menu_dishes_category (category_id, is_active, sort_order),
+  CONSTRAINT fk_menu_dishes_category FOREIGN KEY (category_id) REFERENCES menu_categories (id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE menu_packages (
+  id               INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+  name             VARCHAR(100)  NOT NULL,
+  description      VARCHAR(255)  NULL,
+  price_basis      ENUM('guest','box','group') NOT NULL DEFAULT 'guest',  -- per guest, per box, or one price for a group
+  per_head_rate    DECIMAL(12,2) NULL,              -- copied onto a booking when the package is chosen
+  group_price      DECIMAL(12,2) NULL,              -- 'group' only: per_head_rate = group_price / group_size
+  group_size       INT UNSIGNED  NULL,
+  min_guests       INT UNSIGNED  NULL,              -- a warning on the booking, never a block
+  card_stored_name VARCHAR(64)   NULL,              -- the menu card image, under storage/uploads/
+  card_mime        VARCHAR(100)  NULL,
+  is_active        TINYINT(1)    NOT NULL DEFAULT 1,
+  sort_order       INT           NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_menu_packages_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE menu_package_items (
+  id           INT UNSIGNED     NOT NULL AUTO_INCREMENT,
+  package_id   INT UNSIGNED     NOT NULL,
+  dish_id      INT UNSIGNED     NOT NULL,
+  choice_group TINYINT UNSIGNED NULL,               -- same number = alternatives; NULL = always included
+  is_free      TINYINT(1)       NOT NULL DEFAULT 0, -- printed as "(Free)"
+  sort_order   INT              NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_menu_package_dish (package_id, dish_id),
+  KEY idx_menu_package_items_dish (dish_id),
+  CONSTRAINT fk_menu_items_package FOREIGN KEY (package_id) REFERENCES menu_packages (id) ON DELETE CASCADE,
+  CONSTRAINT fk_menu_items_dish    FOREIGN KEY (dish_id)    REFERENCES menu_dishes (id)   ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- form_options: admin-managed options of the booking form's Stage, Entrance, Lighting and Floor
+-- Covering dropdowns ("Other" is built in). Bookings store the chosen name as text.
+-- ---------------------------------------------------------------------------
+CREATE TABLE form_options (
+  id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  list_key   ENUM('stage','entrance','lighting','floor') NOT NULL,
+  name       VARCHAR(100) NOT NULL,
+  is_active  TINYINT(1)   NOT NULL DEFAULT 1,
+  sort_order INT          NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_form_options_name (list_key, name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- form_sections: whether each form_options dropdown is shown on the booking form. Hiding one
+-- never changes a booking that already has a value for it.
+-- ---------------------------------------------------------------------------
+CREATE TABLE form_sections (
+  list_key ENUM('stage','entrance','lighting','floor') NOT NULL,
+  is_shown TINYINT(1) NOT NULL DEFAULT 1,
+  PRIMARY KEY (list_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- booking_defaults: the standard refund policy every new booking starts with (set on the Catalog
+-- page). A field with no row, or a NULL value, has no default. Existing bookings never change.
+-- ---------------------------------------------------------------------------
+CREATE TABLE booking_defaults (
+  field ENUM('refund_pct_30','refund_pct_7') NOT NULL,
+  value DECIMAL(5,2) NULL,
+  PRIMARY KEY (field)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
 -- bookings: one row per booking / agreement.
 -- ---------------------------------------------------------------------------
 CREATE TABLE bookings (
   -- Identity & lifecycle
   id                  INT UNSIGNED NOT NULL AUTO_INCREMENT,
   unique_id           VARCHAR(20)  NOT NULL,
-  vendor_id           INT UNSIGNED NULL,
+  user_id             INT UNSIGNED NULL,
   created_by          INT UNSIGNED NOT NULL,
   updated_by          INT UNSIGNED NULL,
   status              ENUM('draft','confirmed','completed','cancelled') NOT NULL DEFAULT 'draft',
@@ -121,7 +229,7 @@ CREATE TABLE bookings (
   reference_name       VARCHAR(150) NULL,
   reference_department VARCHAR(150) NULL,
 
-  -- Vendor snapshot
+  -- User snapshot
   firm_name           VARCHAR(150) NULL,
   rep_name            VARCHAR(100) NULL,
   rep_contact         VARCHAR(50)  NULL,
@@ -141,6 +249,9 @@ CREATE TABLE bookings (
   -- Catering
   menu_type           VARCHAR(50)  NULL,
   menu_type_other     VARCHAR(100) NULL,
+  menu_package_id     INT UNSIGNED NULL,        -- soft reference to menu_packages
+  menu_package_name   VARCHAR(100) NULL,        -- snapshot of the package name
+  menu_selection      TEXT NULL,                -- JSON snapshot of the chosen dishes (see app/menus.php)
   food_items          TEXT NULL,
 
   -- Decoration standards
@@ -184,8 +295,8 @@ CREATE TABLE bookings (
   special_commitments TEXT NULL,
 
   -- Signatures
-  vendor_sign_name    VARCHAR(150) NULL,
-  vendor_sign_date    DATE NULL,
+  user_sign_name      VARCHAR(150) NULL,
+  user_sign_date      DATE NULL,
   client_sign_name    VARCHAR(150) NULL,
   client_sign_date    DATE NULL,
 
@@ -197,11 +308,11 @@ CREATE TABLE bookings (
   PRIMARY KEY (id),
   UNIQUE KEY uq_bookings_unique_id (unique_id),
   KEY idx_bookings_event_date (event_date),
-  KEY idx_bookings_vendor_status (vendor_id, status),
+  KEY idx_bookings_user_status (user_id, status),
   KEY idx_bookings_status (status),
   KEY idx_bookings_client_name (client_name),
   KEY idx_bookings_venue_date (venue_id, event_date),
-  CONSTRAINT fk_bookings_vendor       FOREIGN KEY (vendor_id)    REFERENCES users (id)  ON DELETE RESTRICT,
+  CONSTRAINT fk_bookings_user         FOREIGN KEY (user_id)      REFERENCES users (id)  ON DELETE RESTRICT,
   CONSTRAINT fk_bookings_created_by   FOREIGN KEY (created_by)   REFERENCES users (id)  ON DELETE RESTRICT,
   CONSTRAINT fk_bookings_updated_by   FOREIGN KEY (updated_by)   REFERENCES users (id)  ON DELETE RESTRICT,
   CONSTRAINT fk_bookings_cancelled_by FOREIGN KEY (cancelled_by) REFERENCES users (id)  ON DELETE RESTRICT,
@@ -283,6 +394,192 @@ CREATE TABLE attachments (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
+-- vendor_categories: admin-managed kinds of service provider (Catering, Decoration, …).
+-- A category any vendor uses can't be deleted, only deactivated.
+-- ---------------------------------------------------------------------------
+CREATE TABLE vendor_categories (
+  id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  name       VARCHAR(100) NOT NULL,
+  is_active  TINYINT(1)   NOT NULL DEFAULT 1,
+  sort_order INT          NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_vendor_categories_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- vendors: service providers the admin books for events. They have no login.
+-- Invoices copy the vendor's name and contact details, so edits here never change history.
+-- ---------------------------------------------------------------------------
+CREATE TABLE vendors (
+  id             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  category_id    INT UNSIGNED NOT NULL,
+  name           VARCHAR(150) NOT NULL,
+  contact_person VARCHAR(100) NULL,
+  phone          VARCHAR(50)  NULL,
+  phone2         VARCHAR(50)  NULL,
+  email          VARCHAR(150) NULL,
+  address        VARCHAR(255) NULL,
+  notes          TEXT         NULL,
+  is_active      TINYINT(1)   NOT NULL DEFAULT 1,
+  created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_vendors_name (name),
+  KEY idx_vendors_category (category_id, is_active),
+  CONSTRAINT fk_vendors_category FOREIGN KEY (category_id) REFERENCES vendor_categories (id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- vendor_services: what each vendor provides and at what rate. Event lines copy the name, unit
+-- and rate, so changing a rate here never changes an event or an invoice.
+-- ---------------------------------------------------------------------------
+CREATE TABLE vendor_services (
+  id         INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+  vendor_id  INT UNSIGNED  NOT NULL,
+  name       VARCHAR(150)  NOT NULL,
+  unit       VARCHAR(20)   NOT NULL DEFAULT 'fixed',
+  rate       DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  is_active  TINYINT(1)    NOT NULL DEFAULT 1,
+  sort_order INT           NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_vendor_services_name (vendor_id, name),
+  CONSTRAINT fk_vendor_services_vendor FOREIGN KEY (vendor_id) REFERENCES vendors (id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- vendor_category_services: the services each category offers (checkbox list on the vendor pages).
+CREATE TABLE vendor_category_services (
+  id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  category_id INT UNSIGNED NOT NULL,
+  name        VARCHAR(150) NOT NULL,
+  sort_order  INT          NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_vcs_name (category_id, name),
+  CONSTRAINT fk_vcs_category FOREIGN KEY (category_id) REFERENCES vendor_categories (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- vendor_invoices: what Booking Organizer owes a vendor for one event. Vendor and event details are
+-- snapshots. Totals are written only by recompute_vendor_invoice_totals() in app/vendors.php.
+-- Never deleted; a mistaken invoice is voided (only while it has no payments).
+-- ---------------------------------------------------------------------------
+CREATE TABLE vendor_invoices (
+  id                    INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+  invoice_no            VARCHAR(20)   NOT NULL,
+  booking_id            INT UNSIGNED  NOT NULL,
+  vendor_id             INT UNSIGNED  NOT NULL,
+  invoice_date          DATE          NOT NULL,
+  vendor_name           VARCHAR(150)  NOT NULL,
+  vendor_contact_person VARCHAR(100)  NULL,
+  vendor_phone          VARCHAR(110)  NULL,
+  vendor_email          VARCHAR(150)  NULL,
+  vendor_address        VARCHAR(255)  NULL,
+  event_label           VARCHAR(255)  NOT NULL,
+  event_date            DATE          NULL,
+  event_venue           VARCHAR(255)  NULL,
+  sub_total             DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  discount              DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  tax_pct               DECIMAL(5,2)  NOT NULL DEFAULT 0.00,
+  tax_amount            DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  grand_total           DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  paid_total            DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  balance               DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  notes                 VARCHAR(255)  NULL,
+  status                ENUM('issued','void') NOT NULL DEFAULT 'issued',
+  voided_at             DATETIME      NULL,
+  voided_by             INT UNSIGNED  NULL,
+  void_reason           VARCHAR(255)  NULL,
+  created_by            INT UNSIGNED  NOT NULL,
+  created_at            DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_vendor_invoices_no (invoice_no),
+  KEY idx_vendor_invoices_vendor (vendor_id, status),
+  KEY idx_vendor_invoices_booking (booking_id, status),
+  CONSTRAINT fk_vendor_invoices_booking    FOREIGN KEY (booking_id) REFERENCES bookings (id) ON DELETE RESTRICT,
+  CONSTRAINT fk_vendor_invoices_vendor     FOREIGN KEY (vendor_id)  REFERENCES vendors (id)  ON DELETE RESTRICT,
+  CONSTRAINT fk_vendor_invoices_created_by FOREIGN KEY (created_by) REFERENCES users (id)    ON DELETE RESTRICT,
+  CONSTRAINT fk_vendor_invoices_voided_by  FOREIGN KEY (voided_by)  REFERENCES users (id)    ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- vendor_invoice_items: the lines of an invoice, copied when it is generated and never changed.
+-- ---------------------------------------------------------------------------
+CREATE TABLE vendor_invoice_items (
+  id                INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+  vendor_invoice_id INT UNSIGNED  NOT NULL,
+  label             VARCHAR(150)  NOT NULL,
+  unit              VARCHAR(20)   NOT NULL,
+  qty               INT UNSIGNED  NOT NULL,
+  rate              DECIMAL(12,2) NOT NULL,
+  amount            DECIMAL(12,2) NOT NULL,
+  notes             VARCHAR(255)  NULL,
+  sort_order        INT           NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  KEY idx_vii_invoice (vendor_invoice_id, sort_order),
+  CONSTRAINT fk_vii_invoice FOREIGN KEY (vendor_invoice_id) REFERENCES vendor_invoices (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- booking_vendor_items: vendor services assigned to an event. label / unit / rate are snapshots.
+-- A line on an issued invoice is locked; voiding the invoice releases it.
+-- ---------------------------------------------------------------------------
+CREATE TABLE booking_vendor_items (
+  id                INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+  booking_id        INT UNSIGNED  NOT NULL,
+  vendor_id         INT UNSIGNED  NOT NULL,
+  vendor_service_id INT UNSIGNED  NULL,
+  label             VARCHAR(150)  NOT NULL,
+  unit              VARCHAR(20)   NOT NULL,
+  qty               INT UNSIGNED  NOT NULL,
+  rate              DECIMAL(12,2) NOT NULL,
+  amount            DECIMAL(12,2) NOT NULL,
+  notes             VARCHAR(255)  NULL,
+  vendor_invoice_id INT UNSIGNED  NULL,
+  created_by        INT UNSIGNED  NOT NULL,
+  created_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_bvi_booking (booking_id, vendor_id),
+  KEY idx_bvi_vendor (vendor_id),
+  KEY idx_bvi_invoice (vendor_invoice_id),
+  CONSTRAINT fk_bvi_booking    FOREIGN KEY (booking_id)        REFERENCES bookings (id)        ON DELETE CASCADE,
+  CONSTRAINT fk_bvi_vendor     FOREIGN KEY (vendor_id)         REFERENCES vendors (id)         ON DELETE RESTRICT,
+  CONSTRAINT fk_bvi_service    FOREIGN KEY (vendor_service_id) REFERENCES vendor_services (id) ON DELETE SET NULL,
+  CONSTRAINT fk_bvi_invoice    FOREIGN KEY (vendor_invoice_id) REFERENCES vendor_invoices (id) ON DELETE RESTRICT,
+  CONSTRAINT fk_bvi_created_by FOREIGN KEY (created_by)        REFERENCES users (id)           ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- vendor_payments: money paid to a vendor against an invoice. Never deleted; voided once.
+-- ---------------------------------------------------------------------------
+CREATE TABLE vendor_payments (
+  id                INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+  vendor_invoice_id INT UNSIGNED  NOT NULL,
+  amount            DECIMAL(12,2) NOT NULL,
+  paid_on           DATE          NOT NULL,
+  method            ENUM('cash','bank_transfer','cheque','online') NOT NULL,
+  bank_name         VARCHAR(100)  NULL,
+  reference_no      VARCHAR(100)  NULL,
+  notes             VARCHAR(255)  NULL,
+  recorded_by       INT UNSIGNED  NOT NULL,
+  created_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  voided_at         DATETIME      NULL,
+  voided_by         INT UNSIGNED  NULL,
+  void_reason       VARCHAR(255)  NULL,
+  PRIMARY KEY (id),
+  KEY idx_vendor_payments_invoice (vendor_invoice_id, voided_at),
+  CONSTRAINT fk_vendor_payments_invoice     FOREIGN KEY (vendor_invoice_id) REFERENCES vendor_invoices (id) ON DELETE RESTRICT,
+  CONSTRAINT fk_vendor_payments_recorded_by FOREIGN KEY (recorded_by)       REFERENCES users (id)           ON DELETE RESTRICT,
+  CONSTRAINT fk_vendor_payments_voided_by   FOREIGN KEY (voided_by)         REFERENCES users (id)           ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
+-- vendor_invoice_counters: VINV number sequence per year (see next_vendor_invoice_no()).
+-- ---------------------------------------------------------------------------
+CREATE TABLE vendor_invoice_counters (
+  year_key SMALLINT UNSIGNED NOT NULL,
+  seq      INT UNSIGNED      NOT NULL,
+  PRIMARY KEY (year_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------------
 -- audit_log: APPEND-ONLY. The application only INSERTs (through app/audit.php).
 -- booking_id is deliberately not a foreign key, so history survives draft deletion.
 -- ---------------------------------------------------------------------------
@@ -292,8 +589,9 @@ CREATE TABLE audit_log (
   booking_id INT UNSIGNED NULL,
   action     ENUM('create','update','amend','confirm','complete','cancel','delete_draft',
                   'payment_add','payment_void','attachment_add','attachment_void',
-                  'vendor_register','vendor_approve','vendor_disable','password_reset','password_change',
-                  'login_ok','login_fail','catalog_change','venue_change') NOT NULL,
+                  'user_register','user_create','user_approve','user_disable','user_delete','password_reset','password_change',
+                  'login_ok','login_fail','catalog_change','venue_change',
+                  'vendor_change','vendor_assign','vendor_invoice','vendor_payment_add','vendor_payment_void') NOT NULL,
   details    TEXT NULL,
   ip         VARCHAR(45) NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -314,6 +612,6 @@ CREATE TABLE schema_version (
 
 -- This file carries version 1 plus every migration in database/migrations/ folded in,
 -- so a fresh install lands on the same structure an upgraded database reaches.
-INSERT INTO schema_version (version) VALUES (1), (2);
+INSERT INTO schema_version (version) VALUES (1), (2), (3), (4), (5), (6), (7), (8), (9), (10), (11), (12), (13), (14), (15);
 
 SET FOREIGN_KEY_CHECKS = 1;

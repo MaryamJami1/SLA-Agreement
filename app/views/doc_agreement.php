@@ -17,7 +17,7 @@ $zoom = agreement_print_zoom($booking, $decorSections);
   <button type="button" class="btn primary" id="print-btn">Print / Save as PDF</button>
   <a class="btn" href="<?= h(url('booking/form.php?id=' . (int) $booking['id'])) ?>">Back to the booking</a>
   <a class="btn" href="<?= h(url('documents/invoice.php?id=' . (int) $booking['id'])) ?>">Invoice</a>
-  <a class="btn" href="<?= h(url('documents/vendor_sheet.php?id=' . (int) $booking['id'])) ?>">Ops sheet</a>
+  <a class="btn" href="<?= h(url('documents/ops_sheet.php?id=' . (int) $booking['id'])) ?>">Ops sheet</a>
 </div>
 
 <div class="doc card" style="--z:<?= h($zoom) ?>">
@@ -45,12 +45,12 @@ $zoom = agreement_print_zoom($booking, $decorSections);
 
   <p class="doc-intro">This Agreement is made on <strong><?= h(dv($booking['agreement_day'], '____')) ?></strong>
     <strong><?= h(dv($booking['agreement_month'], '____________')) ?></strong> at
-    <strong><?= h(dv($booking['agreement_place'], 'Karachi')) ?></strong> between the Vendor and the Client named below,
+    <strong><?= h(dv($booking['agreement_place'], 'Karachi')) ?></strong> between the User and the Client named below,
     for the event described in this Schedule.</p>
 
   <div class="doc-parties">
     <div class="doc-box">
-      <h4>Vendor (Service Provider — Booking Organizer empaneled)</h4>
+      <h4>User (Service Provider — Booking Organizer empaneled)</h4>
       <p><strong><?= h(dv($booking['firm_name'])) ?></strong></p>
       <p>Representative: <?= h(dv($booking['rep_name'])) ?></p>
       <p>Contact: <?= h(dv($booking['rep_contact'])) ?></p>
@@ -80,12 +80,19 @@ $zoom = agreement_print_zoom($booking, $decorSections);
     </table>
   </section>
 
-  <section class="doc-block" style="flex-grow:<?= $booking['food_items'] ? 2 : 1 ?>">
+<?php $menuByCategory = menu_selection_by_category($booking['menu_selection']); ?>
+  <section class="doc-block" style="flex-grow:<?= $booking['food_items'] || $menuByCategory ? 2 : 1 ?>">
     <h3>2. Catering</h3>
     <table class="doc-table kv doc-items">
       <tr><th>Menu type</th><td><?= h(dchoice($booking, 'menu_type', 'menu_type_other')) ?></td></tr>
+<?php if ($booking['menu_package_name']): ?>
+      <tr><th>Menu package</th><td><?= h($booking['menu_package_name']) ?></td></tr>
+<?php endif; ?>
+<?php foreach ($menuByCategory as $category => $labels): ?>
+      <tr><th><?= h($category) ?></th><td><?= h(implode(', ', $labels)) ?></td></tr>
+<?php endforeach; ?>
 <?php if ($booking['food_items']): ?>
-      <tr><th>Food items</th><td><?= nl2br(h($booking['food_items'])) ?></td></tr>
+      <tr><th><?= $menuByCategory ? 'Menu notes' : 'Food items' ?></th><td><?= nl2br(h($booking['food_items'])) ?></td></tr>
 <?php endif; ?>
     </table>
   </section>
@@ -143,14 +150,14 @@ $zoom = agreement_print_zoom($booking, $decorSections);
       <li>Cancelled 7–30 days before the event: <strong><?= $booking['refund_pct_7'] !== null ? h(rtrim(rtrim($booking['refund_pct_7'], '0'), '.')) . '%' : '____' ?></strong> of the amount paid is refunded.</li>
       <li>Cancelled less than 7 days before the event: the advance is non-refundable.</li>
     </ul>
-    <p class="doc-policy">If the Vendor cancels, the Vendor refunds 200% of the advance received. Force Majeure (war, strikes,
+    <p class="doc-policy">If the User cancels, the User refunds 200% of the advance received. Force Majeure (war, strikes,
       government bans, floods/rains, death in the family — reported within 12 hours) permits re-scheduling of the event or a
       full refund.</p>
   </section>
 
 <?php if ($booking['special_commitments']): ?>
   <section class="doc-block">
-    <h3>6. Special commitments by the Vendor</h3>
+    <h3>6. Special commitments by the User</h3>
     <p><?= nl2br(h($booking['special_commitments'])) ?></p>
   </section>
 <?php endif; ?>
@@ -159,9 +166,9 @@ $zoom = agreement_print_zoom($booking, $decorSections);
 
   <div class="doc-signs">
     <div>
-      <div class="sign-line"><?= h(dv($booking['vendor_sign_name'], '')) ?></div>
-      <span>Vendor — <?= h(dv($booking['firm_name'], 'name and signature')) ?></span>
-      <span>Date: <?= h(ddate($booking['vendor_sign_date'], '____________')) ?></span>
+      <div class="sign-line"><?= h(dv($booking['user_sign_name'], '')) ?></div>
+      <span>User — <?= h(dv($booking['firm_name'], 'name and signature')) ?></span>
+      <span>Date: <?= h(ddate($booking['user_sign_date'], '____________')) ?></span>
     </div>
     <div>
       <div class="sign-line"><?= h(dv($booking['client_sign_name'], '')) ?></div>

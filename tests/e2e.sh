@@ -18,10 +18,12 @@ req() { local jar=$1 m=$2 p=$3; shift 3
 csrf() { req "$1" GET "$2"; TOKEN=$(grep -o 'name="_csrf" value="[a-f0-9]*"' "$T/body" | head -1 | sed 's/.*value="//; s/"//'); }
 expect() { if [ "$1" = "$2" ]; then ok "$3"; else bad "$3" "got [$1], expected [$2]"; fi; }
 contains() { if grep -q -- "$1" "$T/body"; then ok "$2"; else bad "$2" "body lacks [$1]"; fi; }
+lacks() { if grep -q -- "$1" "$T/body"; then bad "$2" "body has [$1]"; else ok "$2"; fi; }
 
 echo "== Guest"
 req g GET /;                         expect "$CODE $LOC" "303 /auth/login.php" "home redirects a guest to sign-in"
-req g GET /admin/vendors.php;        expect "$CODE $LOC" "303 /auth/login.php" "admin page redirects a guest to sign-in"
+req g GET /admin/users.php;        expect "$CODE $LOC" "303 /auth/login.php" "admin page redirects a guest to sign-in"
+req g GET /admin/dashboard.php;      expect "$CODE $LOC" "303 /auth/login.php" "dashboard redirects a guest to sign-in"
 grep -qi '^content-security-policy:' "$T/hdr" && ok "CSP header sent" || bad "CSP header" "missing"
 grep -qi '^x-frame-options: DENY' "$T/hdr" && ok "X-Frame-Options DENY" || bad "X-Frame-Options" "missing"
 rm -f "$T/fresh"; req fresh GET /auth/login.php
@@ -37,9 +39,9 @@ csrf a /auth/login.php
 req a POST /auth/login.php "_csrf=$TOKEN" "username=admin" "password=ChangeMe-2026"
 expect "$CODE $LOC" "303 /auth/change_password.php" "default admin login goes straight to change-password"
 req a GET /;                         expect "$CODE $LOC" "303 /auth/change_password.php" "home is blocked until the password is changed"
-req a GET /admin/vendors.php;        expect "$CODE $LOC" "303 /auth/change_password.php" "admin page is blocked until the password is changed"
+req a GET /admin/users.php;        expect "$CODE $LOC" "303 /auth/change_password.php" "admin page is blocked until the password is changed"
 csrf a /auth/change_password.php
-req a POST /admin/vendors.php "_csrf=$TOKEN" "vendor_id=1" "action=approve"; expect "$CODE" "403" "POST to another page is refused while the change is forced"
+req a POST /admin/users.php "_csrf=$TOKEN" "user_id=1" "action=approve"; expect "$CODE" "403" "POST to another page is refused while the change is forced"
 req a POST /auth/change_password.php "_csrf=$TOKEN" "current_password=wrong-one" "new_password=AdminPass-2026" "new_password_confirm=AdminPass-2026"
 contains "current password is not correct" "wrong current password rejected"
 req a POST /auth/change_password.php "_csrf=$TOKEN" "current_password=ChangeMe-2026" "new_password=ChangeMe-2026" "new_password_confirm=ChangeMe-2026"
@@ -48,51 +50,58 @@ req a POST /auth/change_password.php "_csrf=$TOKEN" "current_password=ChangeMe-2
 contains "at least 10 characters" "short password rejected"
 req a POST /auth/change_password.php "_csrf=$TOKEN" "current_password=ChangeMe-2026" "new_password=AdminPass-2026" "new_password_confirm=AdminPass-2026"
 expect "$CODE $LOC" "303 /index.php" "valid change accepted"
-req a GET /;                         expect "$CODE $LOC" "303 /booking/list.php" "home now goes to the registry"
+req a GET /;                         expect "$CODE $LOC" "303 /admin/dashboard.php" "home now goes to the admin dashboard"
+req a GET /admin/dashboard.php;      expect "$CODE" "200" "dashboard opens after the change"
+contains "No confirmed bookings or payments in this period yet" "empty dashboard says so instead of drawing empty charts"
+req a GET "/admin/dashboard.php?range=year"; contains "This year" "dashboard period can be changed"
+req a GET "/admin/dashboard.php?range=nonsense"; expect "$CODE" "200" "an unknown period falls back to the default"
 req a GET /booking/list.php;         expect "$CODE" "200" "registry opens after the change"
 contains "No bookings yet" "admin sees the (empty) registry"
 
-echo "== Checkpoint 2: a pending vendor can't log in"
+echo "== Checkpoint 2: a pending user can't log in"
 csrf v /auth/register.php
-req v POST /auth/register.php "_csrf=$TOKEN" "firm_name=Uzair Caterers" "rep_name=Uzair Khan" "contact=0312-2159834" "username=Uzair.K" "password=VendorPass-01" "password_confirm=VendorPass-01"
-expect "$CODE $LOC" "303 /auth/login.php" "vendor registration accepted"
+req v POST /auth/register.php "_csrf=$TOKEN" "firm_name=Uzair Caterers" "rep_name=Uzair Khan" "contact=0312-2159834" "username=Uzair.K" "password=UserPass-01" "password_confirm=UserPass-01"
+expect "$CODE $LOC" "303 /auth/login.php" "user registration accepted"
 csrf v /auth/login.php; contains "waiting for approval" "registration message shown"
-req v POST /auth/login.php "_csrf=$TOKEN" "username=uzair.k" "password=VendorPass-01"
-expect "$CODE" "200" "pending vendor stays on the sign-in page"
-contains "waiting for approval by Booking Organizer" "pending vendor told to wait for approval"
+req v POST /auth/login.php "_csrf=$TOKEN" "username=uzair.k" "password=UserPass-01"
+expect "$CODE" "200" "pending user stays on the sign-in page"
+contains "waiting for approval by Booking Organizer" "pending user told to wait for approval"
 csrf v2 /auth/register.php
 req v2 POST /auth/register.php "_csrf=$TOKEN" "firm_name=X" "rep_name=Y" "contact=1" "username=uzair.k" "password=OtherPass-01" "password_confirm=OtherPass-01"
 contains "already taken" "duplicate username rejected"
 
-echo "== Admin approves; vendor signs in; vendor can't reach admin pages"
+echo "== Admin approves; user signs in; user can't reach admin pages"
 VID=$($MYSQL -e "SELECT id FROM users WHERE username='uzair.k'")
-csrf a /admin/vendors.php; contains "uzair.k" "pending vendor listed for the admin"
-req a POST /admin/vendors.php "_csrf=$TOKEN" "vendor_id=$VID" "action=approve"; expect "$CODE" "303" "approve submitted"
-req a GET /admin/vendors.php; contains "is now active" "vendor approved"
+csrf a /admin/users.php; contains "uzair.k" "pending user listed for the admin"
+req a POST /admin/users.php "_csrf=$TOKEN" "user_id=$VID" "action=approve"; expect "$CODE" "303" "approve submitted"
+req a GET /admin/users.php; contains "is now active" "user approved"
 csrf v /auth/login.php
-req v POST /auth/login.php "_csrf=$TOKEN" "username=uzair.k" "password=VendorPass-01"
-expect "$CODE $LOC" "303 /index.php" "approved vendor signs in"
-req v GET /booking/list.php;  contains "Uzair Khan" "vendor sees the registry"
-req v GET /admin/vendors.php; expect "$CODE" "404" "vendor gets 404 on the admin page"
+req v POST /auth/login.php "_csrf=$TOKEN" "username=uzair.k" "password=UserPass-01"
+expect "$CODE $LOC" "303 /index.php" "approved user signs in"
+req v GET /booking/list.php;  contains "Uzair Khan" "user sees the registry"
+req v GET /admin/users.php; expect "$CODE" "404" "user gets 404 on the admin page"
+req v GET /admin/dashboard.php; expect "$CODE" "404" "user gets 404 on the dashboard"
+req v GET /;                  expect "$CODE $LOC" "303 /booking/list.php" "a user's home is still the registry"
+req v GET /booking/list.php;  lacks "Dashboard" "user has no Dashboard tab"
 
-echo "== Disabling signs the vendor out on the next click"
-csrf a /admin/vendors.php
-req a POST /admin/vendors.php "_csrf=$TOKEN" "vendor_id=$VID" "action=disable"
-req v GET /;                  expect "$CODE $LOC" "303 /auth/login.php" "disabled vendor's next click is signed out"
-req v GET /auth/login.php;    contains "no longer active" "disabled vendor told why"
+echo "== Disabling signs the user out on the next click"
+csrf a /admin/users.php
+req a POST /admin/users.php "_csrf=$TOKEN" "user_id=$VID" "action=disable"
+req v GET /;                  expect "$CODE $LOC" "303 /auth/login.php" "disabled user's next click is signed out"
+req v GET /auth/login.php;    contains "no longer active" "disabled user told why"
 
 echo "== Password reset issues a temporary password and forces a change"
-csrf a /admin/vendors.php
-req a POST /admin/vendors.php "_csrf=$TOKEN" "vendor_id=$VID" "action=approve"
-csrf a /admin/vendors.php
-req a POST /admin/vendors.php "_csrf=$TOKEN" "vendor_id=$VID" "action=reset"
-req a GET /admin/vendors.php
+csrf a /admin/users.php
+req a POST /admin/users.php "_csrf=$TOKEN" "user_id=$VID" "action=approve"
+csrf a /admin/users.php
+req a POST /admin/users.php "_csrf=$TOKEN" "user_id=$VID" "action=reset"
+req a GET /admin/users.php
 TEMP=$(grep -o '<div class="secret-box">[^<]*' "$T/body" | sed 's/.*>//')
 if [ ${#TEMP} -eq 12 ]; then ok "temporary password shown once to the admin"; else bad "temporary password" "[$TEMP]"; fi
-req a GET /admin/vendors.php
+req a GET /admin/users.php
 if grep -q secret-box "$T/body"; then bad "temp password shown twice" ""; else ok "temporary password not shown again"; fi
 csrf v3 /auth/login.php
-req v3 POST /auth/login.php "_csrf=$TOKEN" "username=uzair.k" "password=VendorPass-01"; contains "Wrong username or password" "old password no longer works"
+req v3 POST /auth/login.php "_csrf=$TOKEN" "username=uzair.k" "password=UserPass-01"; contains "Wrong username or password" "old password no longer works"
 req v3 POST /auth/login.php "_csrf=$TOKEN" "username=uzair.k" "password=$TEMP"
 expect "$CODE $LOC" "303 /auth/change_password.php" "temporary password forces a change"
 AUD=$($MYSQL -e "SELECT COUNT(*) FROM audit_log WHERE details LIKE '%$TEMP%'")

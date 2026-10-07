@@ -34,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $errors = array_merge($errors, password_problems($password, $confirm, $in['username']));
 
     $pdo = db();
-    $st = $pdo->prepare("SELECT COUNT(*) FROM audit_log WHERE action = 'vendor_register' AND ip = ? AND created_at > NOW() - INTERVAL 1 HOUR");
+    $st = $pdo->prepare("SELECT COUNT(*) FROM audit_log WHERE action = 'user_register' AND ip = ? AND created_at > NOW() - INTERVAL 1 HOUR");
     $st->execute([client_ip()]);
     if ((int) $st->fetchColumn() >= REGISTRATIONS_PER_IP_PER_HOUR) {
         $errors = ['Too many accounts have been created from this network recently. Please try again later.'];
@@ -44,14 +44,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             db_transaction(static function (PDO $pdo) use ($in, $password) {
                 $pdo->prepare("INSERT INTO users (username, password_hash, role, name, firm_name, rep_name, contact, status)
-                               VALUES (?, ?, 'vendor', ?, ?, ?, ?, 'pending')")
+                               VALUES (?, ?, 'user', ?, ?, ?, ?, 'pending')")
                     ->execute([$in['username'], password_hash($password, PASSWORD_DEFAULT), $in['rep_name'],
                         $in['firm_name'], $in['rep_name'], $in['contact']]);
                 $id = (int) $pdo->lastInsertId();
-                audit($pdo, 'vendor_register', $id, null,
+                audit($pdo, 'user_register', $id, null,
                     ['username' => $in['username'], 'firm_name' => $in['firm_name'], 'rep_name' => $in['rep_name'], 'contact' => $in['contact']]);
             });
-            flash('ok', 'Your vendor account has been created and is waiting for approval by Booking Organizer. You can sign in once it has been approved.');
+            flash('ok', 'Your user account has been created and is waiting for approval by Booking Organizer. You can sign in once it has been approved.');
             redirect('auth/login.php');
         } catch (PDOException $e) {
             if ((int) ($e->errorInfo[1] ?? 0) !== 1062) { // 1062 = duplicate key: the username is taken
@@ -62,13 +62,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$pageTitle = 'Create vendor account';
+$pageTitle = 'Create user account';
 $bare = true;
 require APP_ROOT . '/app/views/layout_top.php';
 ?>
 <div class="auth-card">
   <img src="<?= h(url('assets/img/logo.png')) ?>" alt="ASK Organizers" class="login-logo">
-  <h2>Create a vendor account</h2>
+  <h2>Create a user account</h2>
   <p class="login-sub">Booking Organizer will review and approve your account before you can sign in.</p>
 
 <?php if ($errors): ?>
@@ -91,7 +91,7 @@ require APP_ROOT . '/app/views/layout_top.php';
       <span class="hint">At least <?= PASSWORD_MIN_CHARS ?> characters</span></div>
     <div class="field"><label for="password_confirm">Repeat the password</label>
       <input type="password" id="password_confirm" name="password_confirm" autocomplete="new-password" required></div>
-    <button type="submit" class="btn primary loginbtn">Create Vendor Account</button>
+    <button type="submit" class="btn primary loginbtn">Create User Account</button>
   </form>
 
   <p class="login-switch">Already have an account? <a href="<?= h(url('auth/login.php')) ?>">Sign in</a></p>

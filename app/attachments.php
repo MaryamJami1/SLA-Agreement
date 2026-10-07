@@ -20,11 +20,11 @@ const UPLOAD_TYPES = [
 /** The upload or void is not allowed; the message is shown to the user. */
 class AttachmentRefused extends RuntimeException {}
 
-/** Vendors attach to their own drafts; the admin attaches in any status (plan Section 8, "Attachments"). */
+/** Users attach to their own drafts; the admin attaches in any status (plan Section 8, "Attachments"). */
 function can_upload_attachment(array $booking, array $user): bool
 {
     return $user['role'] === 'admin'
-        || ((int) $booking['vendor_id'] === (int) $user['id'] && $booking['status'] === 'draft');
+        || ((int) $booking['user_id'] === (int) $user['id'] && $booking['status'] === 'draft');
 }
 
 function attachment_path(string $storedName): string

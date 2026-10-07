@@ -42,7 +42,7 @@ Then open **phpMyAdmin** for that database and import, in this order:
 1. `database/schema.sql`
 2. `database/seed.sql`
 
-After importing, the database has 11 tables and one admin account. `schema.sql` already contains
+After importing, the database has 23 tables and one admin account. `schema.sql` already contains
 every migration, so a **new** install does not import anything from `database/migrations/`.
 
 Upgrading an existing site is different — see "Applying a schema change later" below. After any
@@ -135,7 +135,12 @@ As the admin:
 - **Venues** — add or rename the venues so they match Booking Organizer (a venue that has been used by a booking
   can only be deactivated, so get the names right before the first booking).
 - **Catalog** — set the default rates for the charges, and add or retire items.
-- **Vendors** — ask each vendor to register from the sign-in page, then approve them.
+- **Menus** — the dishes and menu packages. Booking Organizer's own menus (typed in from the menu cards in
+  `menu/`) are in `database/menu_data.sql`: import it in phpMyAdmin, then upload the card images from every
+  `menu/` subfolder into `storage/uploads/` (each package names its card by file name). A new client skips both
+  and builds their menus on the Menus page. Standard and Premium menus have no price on their cards: set the
+  rate on the Menus page before they are booked.
+- **Users** — ask each user to register from the sign-in page, then approve them.
 
 ---
 

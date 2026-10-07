@@ -25,19 +25,19 @@ login() { csrf "$1" /auth/login.php; req "$1" POST /auth/login.php "_csrf=$TOKEN
 ver() { $MYSQL -e "SELECT version FROM bookings WHERE id=$1"; }
 status() { $MYSQL -e "SELECT status FROM bookings WHERE id=$1"; }
 # new_draft JAR CLIENT DATE VENUE -> ID (a confirmable draft: Rs. 1,00,000)
-# Only Booking Organizer sets money, so the priced draft is saved by the admin with the vendor as its
+# Only Booking Organizer sets money, so the priced draft is saved by the admin with the user as its
 # owner. The JAR argument is kept for readability; ownership is what the tests below turn on.
 new_draft() { csrf a /booking/form.php
   req a POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=$2" "event_date=$3" "venue_id=$4" \
-    "guests=100" "per_head_rate=1000" "client_cnic=42101-1234567-1" "vendor_id=$VENDOR_ID"
+    "guests=100" "per_head_rate=1000" "client_cnic=42101-1234567-1" "user_id=$USER_ID"
   ID=${LOC##*=}; }
 
 HASH=$($PHP -r 'echo password_hash("Passw0rd-e2e", PASSWORD_DEFAULT);')
 $MYSQL -e "UPDATE users SET password_hash='$HASH', must_change_password=0 WHERE username='admin';
   INSERT INTO users (username,password_hash,role,name,firm_name,rep_name,contact,status) VALUES
-  ('uzair','$HASH','vendor','Uzair Khan','Uzair Caterers','Uzair Khan','0312-2159834','active'),
-  ('bilal','$HASH','vendor','Bilal Ahmed','Bilal Events','Bilal Ahmed','0300-1111111','active');"
-VENDOR_ID=$($MYSQL -e "SELECT id FROM users WHERE username='uzair'")
+  ('uzair','$HASH','user','Uzair Khan','Uzair Caterers','Uzair Khan','0312-2159834','active'),
+  ('bilal','$HASH','user','Bilal Ahmed','Bilal Events','Bilal Ahmed','0300-1111111','active');"
+USER_ID=$($MYSQL -e "SELECT id FROM users WHERE username='uzair'")
 LAWN_A=$($MYSQL -e "SELECT id FROM venues WHERE name='Lawn A'")
 LAWN_B=$($MYSQL -e "SELECT id FROM venues WHERE name='Lawn B'")
 login v uzair Passw0rd-e2e
@@ -47,11 +47,11 @@ login a admin Passw0rd-e2e
 echo "== Confirm"
 new_draft v "Ayesha Siddiqui" 2027-01-10 $LAWN_A; A=$ID
 new_draft v "Bushra Ali" 2027-01-10 $LAWN_A; BB=$ID
-req v GET "/booking/form.php?id=$A"; lacks "Confirm booking" "vendor has no Confirm button"
-contains "Delete draft" "owner vendor can delete their draft"
+req v GET "/booking/form.php?id=$A"; lacks "Confirm booking" "user has no Confirm button"
+contains "Delete draft" "owner user can delete their draft"
 csrf v "/booking/form.php?id=$A"
-req v POST /booking/confirm.php "_csrf=$TOKEN" "id=$A" "version=$(ver $A)"; expect "$CODE" "404" "vendor POST to confirm: 404"
-req v POST /booking/cancel.php "_csrf=$TOKEN" "id=$A" "version=$(ver $A)" "reason=x"; expect "$CODE" "404" "vendor POST to cancel: 404"
+req v POST /booking/confirm.php "_csrf=$TOKEN" "id=$A" "version=$(ver $A)"; expect "$CODE" "404" "user POST to confirm: 404"
+req v POST /booking/cancel.php "_csrf=$TOKEN" "id=$A" "version=$(ver $A)" "reason=x"; expect "$CODE" "404" "user POST to cancel: 404"
 csrf a "/booking/form.php?id=$A"; contains "Confirm booking" "admin sees Confirm"
 req a POST /booking/confirm.php "_csrf=$TOKEN" "id=$A" "version=$(( $(ver $A) - 1 ))"
 req a GET "/booking/form.php?id=$A"; contains "changed by someone else after you opened it, so nothing was done" "stale version: nothing done"
@@ -60,9 +60,9 @@ csrf a "/booking/form.php?id=$A"
 req a POST /booking/confirm.php "_csrf=$TOKEN" "id=$A" "version=$(ver $A)"
 req a GET "/booking/form.php?id=$A"; contains "is confirmed." "admin confirms A"; expect "$(status $A)" "confirmed" "A confirmed in the database"
 
-echo "== Vendor view of a confirmed booking"
-req v GET "/booking/form.php?id=$A"; contains "is confirmed and can no longer be edited" "vendor: read-only"
-lacks "Save Changes" "vendor: no save"; lacks "Delete draft" "vendor: no delete"
+echo "== User view of a confirmed booking"
+req v GET "/booking/form.php?id=$A"; contains "is confirmed and can no longer be edited" "user: read-only"
+lacks "Save Changes" "user: no save"; lacks "Delete draft" "user: no delete"
 
 echo "== Venue conflict on confirm, and the override"
 csrf a "/booking/form.php?id=$BB"; contains "Override reason" "B's page asks for an override reason"
@@ -76,13 +76,13 @@ expect "$($MYSQL -e "SELECT COUNT(*) FROM audit_log WHERE action='confirm' AND b
 
 echo "== Direct edit vs amendment through the form"
 FORM=( "client_name=Ayesha Siddiqui" "client_cnic=42101-1234567-1" "event_date=2027-01-10" "venue_id=$LAWN_A" "guests=100"
-       "per_head_rate=1000" "vendor_id=$VENDOR_ID" "firm_name=Uzair Caterers" "rep_name=Uzair Khan" "rep_contact=0312-2159834" )
+       "per_head_rate=1000" "user_id=$USER_ID" "firm_name=Uzair Caterers" "rep_name=Uzair Khan" "rep_contact=0312-2159834" )
 csrf a "/booking/form.php?id=$A"; contains "Changing a confirmed agreement" "admin sees the amendment panel"
-req a POST /booking/save.php "_csrf=$TOKEN" "id=$A" "version=$(ver $A)" "${FORM[@]}" "client_contact=0333-7654321" "client_sign_name=Ayesha Siddiqui" "vendor_sign_name=Uzair Khan"
+req a POST /booking/save.php "_csrf=$TOKEN" "id=$A" "version=$(ver $A)" "${FORM[@]}" "client_contact=0333-7654321" "client_sign_name=Ayesha Siddiqui" "user_sign_name=Uzair Khan"
 req a GET "/booking/form.php?id=$A"; contains "no change to the agreed terms" "contact + signatures saved as a direct edit"
 expect "$($MYSQL -e "SELECT CONCAT(revision,'|',client_sign_name) FROM bookings WHERE id=$A")" "0|Ayesha Siddiqui" "no revision, signatures kept"
 csrf a "/booking/form.php?id=$A"
-req a POST /booking/save.php "_csrf=$TOKEN" "id=$A" "version=$(ver $A)" "${FORM[@]/guests=100/guests=150}" "client_contact=0333-7654321" "client_sign_name=Ayesha Siddiqui" "vendor_sign_name=Uzair Khan"
+req a POST /booking/save.php "_csrf=$TOKEN" "id=$A" "version=$(ver $A)" "${FORM[@]/guests=100/guests=150}" "client_contact=0333-7654321" "client_sign_name=Ayesha Siddiqui" "user_sign_name=Uzair Khan"
 expect "$CODE" "422" "amendment without a reason refused"
 contains "Amendment reason: required" "reason error shown"
 contains "Upload the signed copy of Rev 0 before amending." "signed-copy rule shown (the agreement was signed)"
@@ -90,7 +90,7 @@ $MYSQL -e "INSERT INTO attachments (booking_id, original_name, stored_name, mime
            VALUES ($A, 'signed-rev0.pdf', MD5(RAND()), 'application/pdf', 1, 1, 0)"
 csrf a "/booking/form.php?id=$A"
 req a POST /booking/save.php "_csrf=$TOKEN" "id=$A" "version=$(ver $A)" "${FORM[@]/guests=100/guests=150}" "client_contact=0333-7654321" \
-  "client_sign_name=Ayesha Siddiqui" "vendor_sign_name=Uzair Khan" "amend_reason=Client added 50 guests"
+  "client_sign_name=Ayesha Siddiqui" "user_sign_name=Uzair Khan" "amend_reason=Client added 50 guests"
 req a GET "/booking/form.php?id=$A"; contains "amended: it is now Rev 1" "amendment accepted"
 contains "ID: SLA-[0-9]*-[0-9]* Rev 1" "page shows the Rev 1 number"
 expect "$($MYSQL -e "SELECT CONCAT(revision,'|',IFNULL(client_sign_name,'-'),'|',guests) FROM bookings WHERE id=$A")" "1|-|150" "Rev 1, signatures cleared, guests 150"
@@ -122,7 +122,7 @@ req a GET "/booking/form.php?id=$BB"; contains "Client postponed indefinitely" "
 echo "== Delete a draft"
 new_draft v "Draft To Delete" 2027-03-03 $LAWN_B; DEL=$ID
 csrf o /booking/list.php
-req o POST /booking/delete.php "_csrf=$TOKEN" "id=$DEL" "version=$(ver $DEL)"; expect "$CODE" "404" "another vendor can't delete it (404)"
+req o POST /booking/delete.php "_csrf=$TOKEN" "id=$DEL" "version=$(ver $DEL)"; expect "$CODE" "404" "another user can't delete it (404)"
 csrf v "/booking/form.php?id=$DEL"
 req v POST /booking/delete.php "_csrf=$TOKEN" "id=$DEL" "version=$(ver $DEL)"
 expect "$CODE $LOC" "303 /booking/list.php" "owner deletes; back to the registry"
@@ -132,7 +132,7 @@ expect "$($MYSQL -e "SELECT COUNT(*) FROM audit_log WHERE booking_id=$DEL AND ac
 
 echo "== Registry: search, filter, scope, paging"
 for i in $(seq 1 27); do
-  $MYSQL -e "INSERT INTO bookings (unique_id, vendor_id, created_by, client_name, event_date) VALUES ('SLA-2099-$(printf %04d $i)', $VENDOR_ID, 1, 'Bulk Client $i', '2027-08-01')"
+  $MYSQL -e "INSERT INTO bookings (unique_id, user_id, created_by, client_name, event_date) VALUES ('SLA-2099-$(printf %04d $i)', $USER_ID, 1, 'Bulk Client $i', '2027-08-01')"
 done
 req a GET "/booking/list.php"; contains "page 1 of 2" "30 bookings → 2 pages"
 req a GET "/booking/list.php?page=2"; contains "Page 2 of 2" "page 2 opens"
@@ -141,7 +141,32 @@ req a GET "/booking/list.php?status=cancelled"; contains "Bushra Ali" "status fi
 req a GET "/booking/list.php?q=%25"; contains "0 booking(s) match" "a % in the search is literal, not a wildcard"
 req a GET "/booking/list.php?q=Uzair+Caterers"; contains "booking(s) match" "search by firm"
 lacks "42101-1234567-1" "CNIC never shown in the registry"
-req o GET "/booking/list.php"; contains "No bookings yet" "other vendor sees none of them"
-req a GET "/"; expect "$CODE $LOC" "303 /booking/list.php" "home redirects to the registry"
+req o GET "/booking/list.php"; contains "No bookings yet" "other user sees none of them"
+req a GET "/"; expect "$CODE $LOC" "303 /admin/dashboard.php" "admin home redirects to the dashboard"
+req o GET "/"; expect "$CODE $LOC" "303 /booking/list.php" "user home redirects to the registry"
+
+echo "== Dashboard"
+# A is completed (event yesterday, Rs. 1,50,000, nothing paid); BB is cancelled; the bulk rows are drafts.
+req a GET "/admin/dashboard.php"; expect "$CODE" "200" "dashboard opens with bookings in it"
+contains 'class="chart"' "charts are drawn"
+contains "Ayesha Siddiqui" "largest balances lists the completed booking"
+contains "Rs. 1,50,000" "its outstanding balance is shown"
+expect "$(grep -c 'class="owing"' "$T/body")" "2" "only that booking owes money (once as overdue, once as largest); the cancelled one does not"
+lacks "style=" "no inline styles (the CSP would drop them)"
+contains "day late" "the completed booking's unpaid balance is listed as overdue"
+contains "Every confirmed booking has its signed copy" "nothing confirmed, so no signed copy is missing"
+contains "Booking completed" "recent activity lists what was done"
+contains "Cancelled in this period" "cancellations are counted"
+req a GET "/admin/dashboard.php?range=year"; expect "$CODE" "200" "dashboard opens for this year"
+THIS_MONTH=$(date -d yesterday +%Y-%m)   # the month of A's event, which was moved to yesterday
+req a GET "/admin/dashboard.php?range=custom&from=$THIS_MONTH&to=$THIS_MONTH"; expect "$CODE" "200" "dashboard opens for a custom range"
+contains "Custom range" "the custom range is applied"
+req a GET "/admin/dashboard.php?range=custom&from=2020-01&to=2026-01"; contains "at most 24 months" "an over-long custom range is cut short and says so"
+req a GET "/admin/dashboard.php?range=custom&from=$THIS_MONTH&to=$THIS_MONTH&export=csv"
+grep -qi '^content-type: text/csv' "$T/hdr" && ok "export is served as CSV" || bad "CSV content type" "missing"
+contains "^Month,\"Booked value\",Collected,Completed,Confirmed,Draft,Cancelled" "CSV has its header row"
+contains "^$THIS_MONTH,150000.00,0.00,1,0,0,0" "CSV has this month's figures as plain numbers"
+req v GET "/admin/dashboard.php?export=csv"; expect "$CODE" "404" "user can't export"
+req v GET "/admin/dashboard.php"; expect "$CODE" "404" "user gets 404 on the dashboard"
 
 echo; echo "$PASS passed, $FAIL failed"; rm -rf "$T"; [ $FAIL -eq 0 ]
