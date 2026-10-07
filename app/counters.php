@@ -39,3 +39,28 @@ function next_sla_id(PDO $pdo, int $year): string
     }
     return format_sla_id($year, $seq);
 }
+
+/** Vendor invoice number: VINV-{year}-{seq:04d}. */
+function format_vendor_invoice_no(int $year, int $seq): string
+{
+    return sprintf('VINV-%04d-%04d', $year, $seq);
+}
+
+/**
+ * Reserve the next vendor invoice number for $year. Same rules as next_sla_id(): it must run inside
+ * the transaction that inserts the invoice, so a failed insert gives the number back.
+ */
+function next_vendor_invoice_no(PDO $pdo, int $year): string
+{
+    if (!$pdo->inTransaction()) {
+        throw new LogicException('next_vendor_invoice_no() must run inside the invoice-insert transaction.');
+    }
+    $pdo->prepare('INSERT INTO vendor_invoice_counters (year_key, seq) VALUES (?, LAST_INSERT_ID(1))
+                   ON DUPLICATE KEY UPDATE seq = LAST_INSERT_ID(seq + 1)')
+        ->execute([$year]);
+    $seq = (int) $pdo->query('SELECT LAST_INSERT_ID()')->fetchColumn();
+    if ($seq < 1) {
+        throw new RuntimeException('Vendor invoice counter returned an invalid sequence.');
+    }
+    return format_vendor_invoice_no($year, $seq);
+}

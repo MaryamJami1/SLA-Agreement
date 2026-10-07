@@ -2,8 +2,8 @@
 /**
  * Booking calendar: one month at a time, so a date is checked before it is promised.
  *
- * The grid is deliberately not scoped to the signed-in vendor — a vendor who can't see that Lawn A
- * is taken will promise it anyway. Other vendors' bookings appear as the venue and its status only;
+ * The grid is deliberately not scoped to the signed-in user — a user who can't see that Lawn A
+ * is taken will promise it anyway. Other users' bookings appear as the venue and its status only;
  * client names and SLA numbers stay with the booking's owner and the admin.
  */
 declare(strict_types=1);
@@ -114,7 +114,7 @@ require APP_ROOT . '/app/views/layout_top.php';
             <?= h(($entry['venue'] ?? 'No venue') . $slot) ?></a>
           <span class="cal-who"><?= h($entry['client_name']) ?></span>
 <?php else: ?>
-          <span class="cal-taken" title="<?= h(($entry['venue'] ?? 'No venue') . $where . ' — ' . ucfirst($entry['status']) . ', booked by another vendor') ?>"><?= h(($entry['venue'] ?? 'No venue') . $slot) ?></span>
+          <span class="cal-taken" title="<?= h(($entry['venue'] ?? 'No venue') . $where . ' — ' . ucfirst($entry['status']) . ', booked by another user') ?>"><?= h(($entry['venue'] ?? 'No venue') . $slot) ?></span>
           <span class="cal-who">booked</span>
 <?php endif; ?>
         </li>

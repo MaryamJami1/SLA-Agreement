@@ -26,31 +26,27 @@ if ($booking['status'] === 'draft' && $booking['venue_id'] !== null && $booking[
 }
 $actions = $isAdmin || $canDelete;
 ?>
-<?php if ($isAdmin): ?>
 <div class="card pad lifecycle">
   <h3>DOCUMENTS</h3>
   <p class="muted">Printed from the browser. A draft prints with a DRAFT watermark; an amended booking prints its Rev number.</p>
   <p>
     <a class="btn" href="<?= h(url('documents/agreement.php?id=' . (int) $booking['id'])) ?>">SLA agreement</a>
     <a class="btn" href="<?= h(url('documents/invoice.php?id=' . (int) $booking['id'])) ?>">Customer invoice</a>
-    <a class="btn" href="<?= h(url('documents/vendor_sheet.php?id=' . (int) $booking['id'])) ?>">Operations sheet</a>
+    <a class="btn" href="<?= h(url('documents/ops_sheet.php?id=' . (int) $booking['id'])) ?>">Operations sheet</a>
   </p>
 </div>
-<?php endif; ?>
 <?php if ($booking['status'] === 'cancelled'): ?>
 <div class="card pad lifecycle">
   <h3>CANCELLED</h3>
   <p>Cancelled on <?= h(date('d M Y H:i', strtotime((string) $booking['cancelled_at']))) ?>.
      Reason: <?= h($booking['cancellation_reason']) ?></p>
-<?php if ($isAdmin): ?>
   <p>Amount retained: <strong><?= h(rs($booking['paid_total'])) ?></strong>. Nothing further is owed.</p>
-<?php endif; ?>
 </div>
 <?php elseif ($booking['status'] === 'completed'): ?>
 <div class="card pad lifecycle">
   <h3>COMPLETED</h3>
-  <p>Completed on <?= h(date('d M Y H:i', strtotime((string) $booking['completed_at']))) ?>.<?php if ($isAdmin): ?>
-     Balance: <strong><?= h(rs($booking['balance'])) ?></strong>.<?php endif; ?></p>
+  <p>Completed on <?= h(date('d M Y H:i', strtotime((string) $booking['completed_at']))) ?>.
+     Balance: <strong><?= h(rs($booking['balance'])) ?></strong>.</p>
 </div>
 <?php elseif ($actions): ?>
 <div class="card pad lifecycle">
@@ -61,8 +57,8 @@ $actions = $isAdmin || $canDelete;
     <form method="post" action="<?= h(url('booking/confirm.php')) ?>" class="action-box">
       <?= $ref ?>
       <h4>Confirm</h4>
-      <p class="muted">Issues the SLA. Needs an active vendor, client name, event date, venue and a net amount above Rs. 0.
-        After confirming, vendors can only view it.</p>
+      <p class="muted">Issues the SLA. Needs an active user, client name, event date, venue and a net amount above Rs. 0.
+        After confirming, users can only view and print it.</p>
 <?php $terms = commercial_terms_notices($booking); if ($terms): ?>
       <div class="terms-check">
         <p class="terms-check-head">Check these terms before issuing</p>

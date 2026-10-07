@@ -3,7 +3,7 @@
  * The event slots of one venue on one date, each marked available or booked, as JSON for the booking
  * form. GET venue_id, date (Y-m-d, optional), booking (the booking being edited, optional).
  *
- * Only availability is returned, never who holds a slot, so vendors may ask about any venue — just as
+ * Only availability is returned, never who holds a slot, so users may ask about any venue — just as
  * the calendar shows them which dates are taken. The save re-checks everything under a lock.
  */
 declare(strict_types=1);

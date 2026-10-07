@@ -14,7 +14,7 @@ $file = $st->fetch();
 if (!$file) {
     not_found();
 }
-// The booking decides who may see the file; a vendor asking for someone else's gets the same 404.
+// The booking decides who may see the file; a user asking for someone else's gets the same 404.
 load_booking_for_user($pdo, (int) $file['booking_id'], $user, 'view');
 if ($file['voided_at'] !== null && $user['role'] !== 'admin') {
     not_found();

@@ -32,7 +32,7 @@ function csrf_check(): void
         require APP_ROOT . '/app/views/layout_top.php';
         echo '<div class="auth-card"><h2>That upload was too large</h2>'
             . '<p class="muted">The file exceeds what the server accepts (5 MB per file). Go back and choose a smaller file.</p>'
-            . '<p><a class="btn primary" href="' . h(url('index.php')) . '">Go to the registry</a></p></div>';
+            . '<p><a class="btn primary" href="' . h(url('booking/list.php')) . '">Go to the registry</a></p></div>';
         require APP_ROOT . '/app/views/layout_bottom.php';
         exit;
     }

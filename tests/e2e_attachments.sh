@@ -38,9 +38,9 @@ $PHP -r 'file_put_contents($argv[1], str_repeat("A", 6*1024*1024));' "$T/big.pdf
 HASH=$($PHP -r 'echo password_hash("Passw0rd-e2e", PASSWORD_DEFAULT);')
 $MYSQL -e "UPDATE users SET password_hash='$HASH', must_change_password=0 WHERE username='admin';
   INSERT INTO users (username,password_hash,role,name,firm_name,rep_name,contact,status) VALUES
-  ('uzair','$HASH','vendor','Uzair Khan','Uzair Caterers','Uzair Khan','0312-2159834','active'),
-  ('bilal','$HASH','vendor','Bilal Ahmed','Bilal Events','Bilal Ahmed','0300-1111111','active');"
-VENDOR_ID=$($MYSQL -e "SELECT id FROM users WHERE username='uzair'")
+  ('uzair','$HASH','user','Uzair Khan','Uzair Caterers','Uzair Khan','0312-2159834','active'),
+  ('bilal','$HASH','user','Bilal Ahmed','Bilal Events','Bilal Ahmed','0300-1111111','active');"
+USER_ID=$($MYSQL -e "SELECT id FROM users WHERE username='uzair'")
 LAWN_A=$($MYSQL -e "SELECT id FROM venues WHERE name='Lawn A'")
 SLOT_A=$($MYSQL -e "SELECT id FROM venue_slots WHERE venue_id=$LAWN_A AND name='Morning'")
 login v uzair Passw0rd-e2e
@@ -48,7 +48,7 @@ login o bilal Passw0rd-e2e
 login a admin Passw0rd-e2e
 csrf a /booking/form.php
 req a POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=Ayesha Siddiqui" "event_date=2027-04-04" \
-  "venue_id=$LAWN_A" "slot_id=$SLOT_A" "guests=100" "per_head_rate=1000" "vendor_id=$VENDOR_ID"
+  "venue_id=$LAWN_A" "slot_id=$SLOT_A" "guests=100" "per_head_rate=1000" "user_id=$USER_ID"
 ID=${LOC##*=}
 
 echo "== Upload, download, type and size checks"
@@ -75,28 +75,28 @@ req v GET "/booking/form.php?id=$ID"; contains "Uploaded photo.png" "PNG accepte
 expect "$($MYSQL -e "SELECT COUNT(*) FROM attachments WHERE booking_id=$ID")" "2" "only the accepted files are stored"
 
 echo "== Access"
-req o GET "/documents/download.php?id=$AID"; expect "$CODE" "404" "another vendor can't download it"
+req o GET "/documents/download.php?id=$AID"; expect "$CODE" "404" "another user can't download it"
 csrf o /booking/list.php
 upload o /documents/upload.php "_csrf=$TOKEN" "booking_id=$ID" "file=@$(W signed.pdf);type=application/pdf"
-expect "$CODE" "404" "another vendor can't upload to it"
+expect "$CODE" "404" "another user can't upload to it"
 req a GET "/documents/download.php?id=$AID"; expect "$CODE" "200" "admin can download"
 req v GET "/documents/download.php?id=999999"; expect "$CODE" "404" "unknown attachment: 404"
 
 echo "== Signed copy and the amendment rule (plan test 19, in full)"
 csrf a "/booking/form.php?id=$ID"
 req a POST /booking/confirm.php "_csrf=$TOKEN" "id=$ID" "version=$(ver $ID)"
-req v GET "/booking/form.php?id=$ID"; lacks "Attach a file" "vendor can't attach once confirmed"
+req v GET "/booking/form.php?id=$ID"; lacks "Attach a file" "user can't attach once confirmed"
 csrf v "/booking/form.php?id=$ID"
 upload v /documents/upload.php "_csrf=$TOKEN" "booking_id=$ID" "file=@$(W signed.pdf);type=application/pdf"
-expect "$CODE" "404" "vendor upload to a confirmed booking: 404"
+expect "$CODE" "404" "user upload to a confirmed booking: 404"
 FORM=( "client_name=Ayesha Siddiqui" "event_date=2027-04-04" "venue_id=$LAWN_A" "slot_id=$SLOT_A" "guests=100" "per_head_rate=1000"
-       "vendor_id=$VENDOR_ID" "firm_name=Uzair Caterers" "rep_name=Uzair Khan" "rep_contact=0312-2159834" )
+       "user_id=$USER_ID" "firm_name=Uzair Caterers" "rep_name=Uzair Khan" "rep_contact=0312-2159834" )
 csrf a "/booking/form.php?id=$ID"
-req a POST /booking/save.php "_csrf=$TOKEN" "id=$ID" "version=$(ver $ID)" "${FORM[@]}" "vendor_sign_name=Uzair Khan" "client_sign_name=Ayesha Siddiqui"
+req a POST /booking/save.php "_csrf=$TOKEN" "id=$ID" "version=$(ver $ID)" "${FORM[@]}" "user_sign_name=Uzair Khan" "client_sign_name=Ayesha Siddiqui"
 req a GET "/booking/form.php?id=$ID"; contains "This agreement is signed at Rev 0" "signed booking asks for the scan"
 contains "signed copy of Rev 0" "signed-copy option offered"
 csrf a "/booking/form.php?id=$ID"
-req a POST /booking/save.php "_csrf=$TOKEN" "id=$ID" "version=$(ver $ID)" "${FORM[@]/guests=100/guests=150}" "vendor_sign_name=Uzair Khan" "client_sign_name=Ayesha Siddiqui" "amend_reason=Client added 50 guests"
+req a POST /booking/save.php "_csrf=$TOKEN" "id=$ID" "version=$(ver $ID)" "${FORM[@]/guests=100/guests=150}" "user_sign_name=Uzair Khan" "client_sign_name=Ayesha Siddiqui" "amend_reason=Client added 50 guests"
 contains "Upload the signed copy of Rev 0 before amending." "amendment refused without the scan"
 expect "$($MYSQL -e "SELECT CONCAT(revision,'|',guests) FROM bookings WHERE id=$ID")" "0|100" "nothing changed"
 csrf a "/booking/form.php?id=$ID"
@@ -105,14 +105,14 @@ req a GET "/booking/form.php?id=$ID"; contains "as the signed copy of Rev 0." "s
 contains "SIGNED COPY — REV 0" "badge on the file"
 contains "The signed copy of Rev 0 is on file." "status note"
 csrf a "/booking/form.php?id=$ID"
-req a POST /booking/save.php "_csrf=$TOKEN" "id=$ID" "version=$(ver $ID)" "${FORM[@]/guests=100/guests=150}" "vendor_sign_name=Uzair Khan" "client_sign_name=Ayesha Siddiqui" "amend_reason=Client added 50 guests"
+req a POST /booking/save.php "_csrf=$TOKEN" "id=$ID" "version=$(ver $ID)" "${FORM[@]/guests=100/guests=150}" "user_sign_name=Uzair Khan" "client_sign_name=Ayesha Siddiqui" "amend_reason=Client added 50 guests"
 req a GET "/booking/form.php?id=$ID"; contains "amended: it is now Rev 1" "amendment accepted after the upload"
 expect "$($MYSQL -e "SELECT CONCAT(revision,'|',guests,'|',IFNULL(client_sign_name,'-')) FROM bookings WHERE id=$ID")" "1|150|-" "Rev 1, guests 150, signatures cleared"
 req a GET "/documents/agreement.php?id=$ID"; contains "Rev 1" "agreement prints Rev 1"
 
 echo "== Voiding a signed copy (checkpoint)"
 csrf a "/booking/form.php?id=$ID"
-req a POST /booking/save.php "_csrf=$TOKEN" "id=$ID" "version=$(ver $ID)" "${FORM[@]/guests=100/guests=150}" "vendor_sign_name=Uzair Khan" "client_sign_name=Ayesha Siddiqui"
+req a POST /booking/save.php "_csrf=$TOKEN" "id=$ID" "version=$(ver $ID)" "${FORM[@]/guests=100/guests=150}" "user_sign_name=Uzair Khan" "client_sign_name=Ayesha Siddiqui"
 csrf a "/booking/form.php?id=$ID"
 upload a /documents/upload.php "_csrf=$TOKEN" "booking_id=$ID" "is_signed_copy=1" "signed_revision=1" "file=@$(W signed.pdf);type=application/pdf"
 SIGNED1=$($MYSQL -e "SELECT id FROM attachments WHERE booking_id=$ID AND signed_revision=1")
@@ -120,17 +120,17 @@ csrf a "/booking/form.php?id=$ID"
 req a POST /documents/attachment_void.php "_csrf=$TOKEN" "booking_id=$ID" "attachment_id=$SIGNED1" "reason=Wrong scan attached"
 req a GET "/booking/form.php?id=$ID"; contains "no longer counts as a signed copy" "void confirmed"; contains "VOIDED" "file marked voided"
 csrf a "/booking/form.php?id=$ID"
-req a POST /booking/save.php "_csrf=$TOKEN" "id=$ID" "version=$(ver $ID)" "${FORM[@]/guests=100/guests=175}" "vendor_sign_name=Uzair Khan" "client_sign_name=Ayesha Siddiqui" "amend_reason=More guests again"
+req a POST /booking/save.php "_csrf=$TOKEN" "id=$ID" "version=$(ver $ID)" "${FORM[@]/guests=100/guests=175}" "user_sign_name=Uzair Khan" "client_sign_name=Ayesha Siddiqui" "amend_reason=More guests again"
 contains "Upload the signed copy of Rev 1 before amending." "a voided signed copy no longer satisfies the check"
-req v GET "/booking/form.php?id=$ID"; lacks "VOIDED" "vendors don't see voided files"
-req v GET "/documents/download.php?id=$SIGNED1"; expect "$CODE" "404" "vendor can't download a voided file"
+req v GET "/booking/form.php?id=$ID"; lacks "VOIDED" "users don't see voided files"
+req v GET "/documents/download.php?id=$SIGNED1"; expect "$CODE" "404" "user can't download a voided file"
 req a GET "/documents/download.php?id=$SIGNED1"; expect "$CODE" "200" "admin can still download it"
 csrf a "/booking/form.php?id=$ID"
 req a POST /documents/attachment_void.php "_csrf=$TOKEN" "booking_id=$ID" "attachment_id=$SIGNED1" "reason=again"
 req a GET "/booking/form.php?id=$ID"; contains "already been voided" "second void refused"
 csrf v "/booking/form.php?id=$ID"
 req v POST /documents/attachment_void.php "_csrf=$TOKEN" "booking_id=$ID" "attachment_id=$AID" "reason=x"
-expect "$CODE" "404" "vendor can't void files"
+expect "$CODE" "404" "user can't void files"
 
 echo "== Catalog (checkpoint: renaming doesn't change old invoices)"
 req a GET /admin/catalog.php; expect "$CODE" "200" "catalog page opens"
@@ -191,13 +191,13 @@ req a GET /admin/venues.php; contains "can&#039;t be deleted" "used venue can't 
 req a GET /admin/preflight.php; expect "$CODE" "200" "deployment checks page opens for the admin"
 contains "All tables imported" "database check listed"
 contains "Default admin password changed" "seeded-password check listed"
-req v GET /admin/preflight.php; expect "$CODE" "404" "vendor: 404 on the checks page"
-req v GET /admin/catalog.php; expect "$CODE" "404" "vendor: 404 on the catalog page"
-req v GET /admin/venues.php; expect "$CODE" "404" "vendor: 404 on the venues page"
+req v GET /admin/preflight.php; expect "$CODE" "404" "user: 404 on the checks page"
+req v GET /admin/catalog.php; expect "$CODE" "404" "user: 404 on the catalog page"
+req v GET /admin/venues.php; expect "$CODE" "404" "user: 404 on the venues page"
 
 echo "== Event Slot Management"
 LAWN_C=$($MYSQL -e "SELECT id FROM venues WHERE name='Lawn C'")
-req v GET "/admin/slots.php"; expect "$CODE" "404" "vendors can't open slot management"
+req v GET "/admin/slots.php"; expect "$CODE" "404" "users can't open slot management"
 req a GET "/admin/slots.php?venue=$LAWN_C"; expect "$CODE" "200" "slot management opens"
 contains "Event Slot Management" "page title"; contains "Add New Slot" "add button"
 contains "8:00 PM" "default Evening listed with its time"

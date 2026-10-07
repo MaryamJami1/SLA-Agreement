@@ -7,17 +7,81 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/menus.php';
 require_once __DIR__ . '/slots.php';
 
-const EVENT_TYPES    = ['Mehndi', 'Barat', 'Valima', 'Birthday', 'Corporate', 'Other'];
-const MENU_TYPES     = ['Buffet', 'Sitting Dinner', 'Hi-Tea', 'Other'];
-const STAGE_TYPES    = ['Full backdrop — fresh flowers', 'Artificial flowers', 'Fabric', 'Other'];
-const ENTRANCE_TYPES = ['Welcome arch', 'Floral gate', 'None', 'Other'];
-const LIGHTING_TYPES = ['Simple', 'Uplighting', 'Fairy lights', 'Spotlights', 'Other'];
-const FLOOR_TYPES    = ['Red Carpet', 'Regular Flooring', 'Other'];
+const EVENT_TYPES    =['Mehndi', 'Barat', 'Valima', 'Birthday', 'Corporate', 'Other'];
+
+/**
+ * Admin-managed dropdowns kept in form_options: list key => [booking column, label, companion columns].
+ * The companion columns are shown or hidden together with the dropdown.
+ */
+const FORM_OPTION_LISTS = [
+    'stage'    => ['stage',          'Stage Decoration',    ['stage_other', 'stage_desc']],
+    'entrance' => ['entrance',       'Entrance Decoration', ['entrance_other']],
+    'lighting' => ['lighting',       'Lighting',            ['lighting_other']],
+    'floor'    => ['floor_covering', 'Floor Covering',      ['floor_other']],
+];
+
+/** list key => whether the admin shows it on the booking form (a list with no row counts as shown). */
+function form_section_visibility(): array
+{
+    static $cache = null;
+    if ($cache === null) {
+        $cache = array_fill_keys(array_keys(FORM_OPTION_LISTS), true);
+        foreach (db()->query('SELECT list_key, is_shown FROM form_sections')->fetchAll() as $row) {
+            $cache[$row['list_key']] = (bool) (int) $row['is_shown'];
+        }
+    }
+    return $cache;
+}
+
+function form_section_shown(string $list): bool
+{
+    return form_section_visibility()[$list] ?? true;
+}
 const DUE_ON_TYPES   = ['Event Day', 'As agreed'];
 
 const LONG_TEXT_MAX = 10000;
+
+/**
+ * Options of an admin-managed dropdown (see FORM_OPTION_LISTS); "Other" is always the last choice.
+ * Same $activeOnly rule as menu_type_options().
+ */
+function form_option_names(string $list, bool $activeOnly = true): array
+{
+    $st = db()->prepare('SELECT name FROM form_options WHERE list_key = ?' . ($activeOnly ? ' AND is_active = 1' : '')
+        . ' ORDER BY sort_order, name');
+    $st->execute([$list]);
+    $names = $st->fetchAll(PDO::FETCH_COLUMN);
+    $names[] = 'Other';
+    return $names;
+}
+
+/**
+ * What the form offers for a select: $options, plus the booking's own value when it is no longer
+ * offered (retired by the admin), inserted before "Other" so an old booking still displays it.
+ */
+function options_with_current(array $options, string $current): array
+{
+    if ($current !== '' && !in_array($current, $options, true)) {
+        array_splice($options, -1, 0, [$current]);
+    }
+    return $options;
+}
+
+/**
+ * Menu types come from the admin-managed menu_types table; "Other" is always the last choice.
+ * $activeOnly = true gives what the form offers; false also includes retired names, which is what a
+ * save accepts, so an old booking that uses a retired menu type can still be saved.
+ */
+function menu_type_options(bool $activeOnly = true): array
+{
+    $sql = 'SELECT name FROM menu_types' . ($activeOnly ? ' WHERE is_active = 1' : '') . ' ORDER BY sort_order, name';
+    $names = db()->query($sql)->fetchAll(PDO::FETCH_COLUMN);
+    $names[] = 'Other';
+    return $names;
+}
 
 /** Selects with an "If Other, specify" companion field. */
 const OTHER_PAIRS = [
@@ -39,6 +103,15 @@ const LINE_SECTIONS = [
     'ops_item'        => 'Operations Sheet Items',
 ];
 
+/**
+ * Every section's lines can carry a rate and add to the totals. Only Charges require a rate; a decor
+ * or operations item without one simply carries no money.
+ */
+function section_is_priced(string $section): bool
+{
+    return isset(LINE_SECTIONS[$section]);
+}
+
 /** A booking save failed validation; ->errors maps field => message. */
 class BookingValidationError extends RuntimeException
 {
@@ -55,14 +128,15 @@ class BookingValidationError extends RuntimeException
 class BookingConflict extends RuntimeException {}
 
 /**
- * Commercial terms and AO Mess's own records: field => value used when a vendor creates a booking.
+ * Commercial terms and Booking Organizer's own records: field => value used when a user creates a booking.
  *
- * A vendor may describe the event and quote its per-head catering rate, but not set the fixed
- * charges, the discount or what happens if it is cancelled, and may not write AO Mess's
- * acknowledgement of receipt. On an existing booking these keep whatever the admin last saved.
- * Charge line rates are protected the same way, in parse_booking_lines().
+ * A user may describe the event but not price it or set what happens if it is cancelled, and may
+ * not write Booking Organizer's acknowledgement of receipt. On an existing booking these keep whatever the
+ * admin last saved. Line rates are protected the same way, in parse_booking_lines(): a user may
+ * tick a charge or item, but its rate is always Booking Organizer's.
  */
 const ADMIN_ONLY_FIELDS = [
+    'per_head_rate' => '0.00',
     'discount'      => '0.00',
     'due_on'        => 'Event Day',
     'refund_pct_30' => null,
@@ -72,9 +146,31 @@ const ADMIN_ONLY_FIELDS = [
     'received_time' => null,
 ];
 
+/** Fields Booking Organizer can give a standard value on the Catalog page: field => label. */
+const BOOKING_DEFAULT_FIELDS = [
+    'refund_pct_30' => 'Refund if cancelled more than 30 days before (%)',
+    'refund_pct_7'  => 'Refund if cancelled 7–30 days before (%)',
+];
+
+/** The standard refund policy: field => stored DECIMAL string, or null where none is set. */
+function booking_defaults(PDO $pdo): array
+{
+    $values = array_fill_keys(array_keys(BOOKING_DEFAULT_FIELDS), null);
+    foreach ($pdo->query('SELECT field, value FROM booking_defaults')->fetchAll() as $row) {
+        $values[$row['field']] = $row['value'];
+    }
+    return $values;
+}
+
+/** ADMIN_ONLY_FIELDS with the standard refund policy filled in: what a new booking starts with. */
+function new_booking_admin_fields(PDO $pdo): array
+{
+    return booking_defaults($pdo) + ADMIN_ONLY_FIELDS;
+}
+
 /**
  * Scalar booking columns the form edits: name => [type, max length or options, label].
- * vendor_id, venue_id/venue_other and the event slot are handled separately. start_time is only typed
+ * user_id, venue_id/venue_other and the event slot are handled separately. start_time is only typed
  * for "Other" venues; with a venue from the list it is the chosen slot's start.
  */
 function booking_field_specs(): array
@@ -103,18 +199,18 @@ function booking_field_specs(): array
         // bookings stored; nothing reads or writes it now.
         'start_time'           => ['time', null, 'Event start time'],
         'guests'               => ['count', null, 'Estimated guests'],
-        'menu_type'            => ['select', MENU_TYPES, 'Menu type'],
+        'menu_type'            => ['select', menu_type_options(false), 'Menu type'],
         'menu_type_other'      => ['text', 100, 'Other menu type'],
         'food_items'           => ['longtext', LONG_TEXT_MAX, 'Food items'],
         'theme'                => ['text', 150, 'Theme / colour scheme'],
-        'stage'                => ['select', STAGE_TYPES, 'Stage decoration'],
+        'stage'                => ['select', form_option_names('stage', false), 'Stage decoration'],
         'stage_other'          => ['text', 150, 'Other stage decoration'],
         'stage_desc'           => ['longtext', LONG_TEXT_MAX, 'Stage description'],
-        'entrance'             => ['select', ENTRANCE_TYPES, 'Entrance decoration'],
+        'entrance'             => ['select', form_option_names('entrance', false), 'Entrance decoration'],
         'entrance_other'       => ['text', 150, 'Other entrance decoration'],
-        'lighting'             => ['select', LIGHTING_TYPES, 'Lighting'],
+        'lighting'             => ['select', form_option_names('lighting', false), 'Lighting'],
         'lighting_other'       => ['text', 150, 'Other lighting'],
-        'floor_covering'       => ['select', FLOOR_TYPES, 'Floor covering'],
+        'floor_covering'       => ['select', form_option_names('floor', false), 'Floor covering'],
         'floor_other'          => ['text', 150, 'Other floor covering'],
         'addl_decor'           => ['longtext', LONG_TEXT_MAX, 'Additional decor'],
         'decor_by'             => ['text', 150, 'Decor by'],
@@ -127,8 +223,8 @@ function booking_field_specs(): array
         'refund_pct_30'        => ['pct', null, 'Refund % (30+ days)'],
         'refund_pct_7'         => ['pct', null, 'Refund % (7–30 days)'],
         'special_commitments'  => ['longtext', LONG_TEXT_MAX, 'Special commitments'],
-        'vendor_sign_name'     => ['text', 150, 'Vendor signature name'],
-        'vendor_sign_date'     => ['date', null, 'Vendor signature date'],
+        'user_sign_name'     => ['text', 150, 'User signature name'],
+        'user_sign_date'     => ['date', null, 'User signature date'],
         'client_sign_name'     => ['text', 150, 'Client signature name'],
         'client_sign_date'     => ['date', null, 'Client signature date'],
         'received_by'          => ['text', 100, 'Received by'],
@@ -145,9 +241,9 @@ function booking_field_specs(): array
  * Load a booking the user may act on with $intent, or respond 404 (never 403: the page must not
  * reveal that the booking exists). No other code queries bookings by id.
  *
- *   view   — admin: any; vendor: own bookings
- *   edit   — admin: draft or confirmed; vendor: own drafts
- *   delete — admin: any draft; vendor: own drafts
+ *   view   — admin: any; user: own bookings
+ *   edit   — admin: draft or confirmed; user: own drafts
+ *   delete — admin: any draft; user: own drafts
  *   admin  — money, voids, cancel, confirm, complete: admin only
  */
 function load_booking_for_user(PDO $pdo, int $id, array $user, string $intent): array
@@ -165,7 +261,7 @@ function load_booking_for_user(PDO $pdo, int $id, array $user, string $intent): 
 function booking_allows(array $booking, array $user, string $intent): bool
 {
     $isAdmin = $user['role'] === 'admin';
-    $isOwner = !$isAdmin && (int) $booking['vendor_id'] === (int) $user['id'];
+    $isOwner = !$isAdmin && (int) $booking['user_id'] === (int) $user['id'];
     switch ($intent) {
         case 'view':
             return $isAdmin || $isOwner;
@@ -185,17 +281,17 @@ function booking_scope_sql(array $user, string $alias = 'b'): array
 {
     return $user['role'] === 'admin'
         ? ['1 = 1', []]
-        : ["$alias.vendor_id = ?", [(int) $user['id']]];
+        : ["$alias.user_id = ?", [(int) $user['id']]];
 }
 
 // ---------------------------------------------------------------------------
 // Lookups for the form
 // ---------------------------------------------------------------------------
 
-function active_vendors(PDO $pdo): array
+function active_users(PDO $pdo): array
 {
     return $pdo->query("SELECT id, username, firm_name, rep_name, contact FROM users
-                         WHERE role = 'vendor' AND status = 'active' ORDER BY firm_name, username")->fetchAll();
+                         WHERE role = 'user' AND status = 'active' ORDER BY firm_name, username")->fetchAll();
 }
 
 /** Active venues, plus the booking's current venue if it has since been deactivated. */
@@ -275,6 +371,17 @@ function parse_booking_input(PDO $pdo, array $post, array $user, ?array $existin
         }
     }
 
+    // A section the admin hides is not on the form, so nothing is posted for it: keep whatever the
+    // booking already stores (nothing for a new booking) instead of blanking it.
+    foreach (FORM_OPTION_LISTS as $list => [$column, , $companions]) {
+        if (!form_section_shown($list)) {
+            foreach (array_merge([$column], $companions) as $name) {
+                unset($errors[$name]);
+                $fields[$name] = $existing[$name] ?? null;
+            }
+        }
+    }
+
     // "If Other, specify" is kept only when "Other" is chosen.
     foreach (OTHER_PAIRS as $select => $other) {
         if ($fields[$select] !== 'Other') {
@@ -342,28 +449,41 @@ function parse_booking_input(PDO $pdo, array $post, array $user, ?array $existin
         $fields['start_time'] = $fields['slot_start'];
     }
 
-    // Vendor (ownership rules, plan Section 5).
-    if ($user['role'] === 'vendor') {
-        // Vendors never choose or change the owner; the snapshot always comes from their own profile.
-        $fields['vendor_id'] = $existing === null ? (int) $user['id'] : (int) $existing['vendor_id'];
+    // User (ownership rules, plan Section 5).
+    if ($user['role'] === 'user') {
+        // Users never choose or change the owner; the snapshot always comes from their own profile.
+        $fields['user_id'] = $existing === null ? (int) $user['id'] : (int) $existing['user_id'];
         $fields['firm_name'] = $user['firm_name'];
         $fields['rep_name'] = $user['rep_name'];
         $fields['rep_contact'] = $user['contact'];
 
-        // AO Mess sets the fixed charges, discount, refund terms and its own receipt. A vendor
-        // describes the event and quotes the per-head rate, nothing more.
+        // Booking Organizer sets the money and its own records. A user describes the event; it does not
+        // price it, does not write the refund terms, and does not fill in Booking Organizer's receipt.
         // Enforced here rather than only in the view, so a hand-made POST can't get round it.
-        foreach (ADMIN_ONLY_FIELDS as $field => $default) {
+        // A new booking starts from the standard refund policy (booking_defaults).
+        foreach (new_booking_admin_fields($pdo) as $field => $default) {
             $fields[$field] = $existing === null ? $default : $existing[$field];
             unset($errors[$field]);   // never report an error for a field they cannot set
         }
     } else {
-        $vendorRaw = is_string($post['vendor_id'] ?? null) ? trim($post['vendor_id']) : '';
-        $fields['vendor_id'] = $vendorRaw === '' ? null : (ctype_digit($vendorRaw) ? (int) $vendorRaw : -1);
-        if ($fields['vendor_id'] === -1) {
-            $errors['vendor_id'] = 'Vendor: choose a vendor from the list.';
-            $fields['vendor_id'] = null;
+        $userRaw = is_string($post['user_id'] ?? null) ? trim($post['user_id']) : '';
+        $fields['user_id'] = $userRaw === '' ? null : (ctype_digit($userRaw) ? (int) $userRaw : -1);
+        if ($fields['user_id'] === -1) {
+            $errors['user_id'] = 'User: choose a user from the list.';
+            $fields['user_id'] = null;
         }
+    }
+
+    // Menu package and dishes (app/menus.php). Newly choosing a priced package sets the per-head rate:
+    // a user can't price a booking, but the package's rate is Booking Organizer's own; the admin's
+    // form fills the rate in as the package is chosen, so the server only fills it when left at zero.
+    $menu = parse_booking_menu($pdo, $post, $existing, $user['role'] === 'admin');
+    $fields = $menu['fields'] + $fields;
+    $errors += $menu['errors'];
+    $newPackage = $menu['package'];
+    if ($newPackage !== null && $newPackage['per_head_rate'] !== null
+        && ($user['role'] === 'user' || $fields['per_head_rate'] === '0.00')) {
+        $fields['per_head_rate'] = $newPackage['per_head_rate'];
     }
 
     [$lines, $lineErrors] = parse_booking_lines($post['lines'] ?? [], $formLines, $user['role'] === 'admin');
@@ -456,43 +576,30 @@ function parse_booking_lines($posted, array $formLines, bool $isAdmin = true): a
         if (mb_strlen($notes) > 255) {
             $errors["line_$key"] = "$label: notes can be at most 255 characters.";
         }
-        if ($line['section'] === 'charge' && !$isAdmin) {
-            // A vendor chooses which charges apply (tick, quantity, notes); the rate is AO Mess's:
-            // the stored rate, or the catalog default for a newly ticked item. Any posted rate is
-            // ignored. A charge with no rate yet counts as Rs. 0 until AO Mess prices it.
-            if ($line['unit'] === 'per unit') {
-                try {
-                    $qty = parse_whole_number(is_string($in['qty'] ?? null) ? $in['qty'] : '');
-                    if ($selected && $qty === null) {
-                        throw new InvalidInput('enter a quantity (0 or more).');
-                    }
-                } catch (InvalidInput $e) {
-                    $errors["line_$key"] = "$label: " . $e->getMessage();
-                }
-            }
-            if ($line['line_id'] === null && !$selected) {
-                continue;
-            }
-            $lines[$key] = $line + ['new' => [
-                'selected' => $selected, 'rate' => $line['rate'], 'qty' => $qty, 'notes' => $notes === '' ? null : $notes,
-            ]];
-            continue;
-        }
         try {
-            if ($line['section'] === 'charge') {
-                $ratePaisa = parse_money(is_string($in['rate'] ?? null) ? $in['rate'] : '');
-                $rate = $ratePaisa === null ? null : paisa_to_decimal($ratePaisa);
-                if ($selected && $rate === null) {
+            if (section_is_priced($line['section'])) {
+                $isCharge = $line['section'] === 'charge';
+                if ($isAdmin) {
+                    $ratePaisa = parse_money(is_string($in['rate'] ?? null) ? $in['rate'] : '');
+                    $rate = $ratePaisa === null ? null : paisa_to_decimal($ratePaisa);
+                } else {
+                    // A user chooses what the event needs (ticks the line, gives a quantity and a
+                    // note) but never prices it: whatever rate is posted is ignored. The line keeps
+                    // the rate it has, or takes the catalog's current default when it is newly ticked.
+                    $rate = $line['rate'];
+                }
+                // Booking Organizer must price a charge it selects; a decor item without a rate simply carries
+                // no money. A charge a user ticks that has no rate yet waits for Booking Organizer to price it.
+                if ($selected && $rate === null && $isCharge && $isAdmin) {
                     throw new InvalidInput('enter a rate for the selected charge.');
                 }
-                if ($line['unit'] === 'per unit') {
+                // Operations items always keep the quantity they show on the user sheet.
+                if ($line['unit'] === 'per unit' || $line['section'] === 'ops_item') {
                     $qty = parse_whole_number(is_string($in['qty'] ?? null) ? $in['qty'] : '');
-                    if ($selected && $qty === null) {
+                    if ($selected && $qty === null && $rate !== null && $line['unit'] === 'per unit') {
                         throw new InvalidInput('enter a quantity (0 or more).');
                     }
                 }
-            } elseif ($line['section'] === 'ops_item') {
-                $qty = parse_whole_number(is_string($in['qty'] ?? null) ? $in['qty'] : '');
             }
         } catch (InvalidInput $e) {
             $errors["line_$key"] = "$label: " . $e->getMessage();
@@ -560,24 +667,25 @@ function save_booking_draft_tx(PDO $pdo, array $user, ?int $bookingId, ?int $ver
             throw new BookingValidationError(['slot_id' => $taken]);
         }
 
-        // An admin setting or changing the vendor: must be an active, approved vendor (shared lock; LOCK IN SHARE MODE works on MySQL 8 and MariaDB, FOR SHARE is MySQL-only).
-        if ($user['role'] === 'admin' && $fields['vendor_id'] !== null
-            && ($old === null || (int) $old['vendor_id'] !== $fields['vendor_id'])) {
+        // An admin setting or changing the user: must be an active, approved user (shared lock; LOCK IN SHARE MODE works on MySQL 8 and MariaDB, FOR SHARE is MySQL-only).
+        if ($user['role'] === 'admin' && $fields['user_id'] !== null
+            && ($old === null || (int) $old['user_id'] !== $fields['user_id'])) {
             $st = $pdo->prepare("SELECT id, firm_name, rep_name, contact FROM users
-                                  WHERE id = ? AND role = 'vendor' AND status = 'active' LOCK IN SHARE MODE");
-            $st->execute([$fields['vendor_id']]);
-            $vendor = $st->fetch();
-            if (!$vendor) {
-                throw new BookingValidationError(['vendor_id' => 'Vendor: choose an active, approved vendor.']);
+                                  WHERE id = ? AND role = 'user' AND status = 'active' LOCK IN SHARE MODE");
+            $st->execute([$fields['user_id']]);
+            $bookedUser = $st->fetch();
+            if (!$bookedUser) {
+                throw new BookingValidationError(['user_id' => 'User: choose an active, approved user.']);
             }
         }
-        $fields = fill_vendor_snapshot($pdo, $fields);
+        $fields = fill_user_snapshot($pdo, $fields);
 
         // Cross-field money checks on the final line set, before anything is written.
         $chargeLines = [];
         foreach (booking_final_charge_lines($pdo, $bookingId, $lines) as $k => $l) {
             $chargeLines[$k] = $l;
         }
+        $chargeLines += menu_extra_charge_lines($fields['menu_selection'] ?? null); // extra dishes
         $discount = decimal_to_paisa($fields['discount']);
         $totals = compute_totals(decimal_to_paisa($fields['per_head_rate']), (int) $fields['guests'], $discount, $chargeLines, [], 'draft');
         if ($problems = validate_totals($totals, $discount)) {
@@ -621,21 +729,21 @@ function save_booking_draft_tx(PDO $pdo, array $user, ?int $bookingId, ?int $ver
 }
 
 /**
- * Blank firm / representative / contact snapshot fields are filled from the assigned vendor's profile;
+ * Blank firm / representative / contact snapshot fields are filled from the assigned user's profile;
  * values the admin typed are kept (plan Section 5: copied from the profile, the admin can override).
  */
-function fill_vendor_snapshot(PDO $pdo, array $fields): array
+function fill_user_snapshot(PDO $pdo, array $fields): array
 {
-    if ($fields['vendor_id'] === null
+    if ($fields['user_id'] === null
         || ($fields['firm_name'] !== null && $fields['rep_name'] !== null && $fields['rep_contact'] !== null)) {
         return $fields;
     }
     $st = $pdo->prepare('SELECT firm_name, rep_name, contact FROM users WHERE id = ?');
-    $st->execute([$fields['vendor_id']]);
-    if ($vendor = $st->fetch()) {
-        $fields['firm_name'] = $fields['firm_name'] ?? $vendor['firm_name'];
-        $fields['rep_name'] = $fields['rep_name'] ?? $vendor['rep_name'];
-        $fields['rep_contact'] = $fields['rep_contact'] ?? $vendor['contact'];
+    $st->execute([$fields['user_id']]);
+    if ($bookedUser = $st->fetch()) {
+        $fields['firm_name'] = $fields['firm_name'] ?? $bookedUser['firm_name'];
+        $fields['rep_name'] = $fields['rep_name'] ?? $bookedUser['rep_name'];
+        $fields['rep_contact'] = $fields['rep_contact'] ?? $bookedUser['contact'];
     }
     return $fields;
 }
@@ -645,7 +753,7 @@ function booking_final_charge_lines(PDO $pdo, ?int $bookingId, array $lines): ar
 {
     $final = [];
     if ($bookingId !== null) {
-        $st = $pdo->prepare("SELECT id, unit_snapshot, is_selected, qty, rate FROM booking_line_items WHERE booking_id = ? AND section = 'charge'");
+        $st = $pdo->prepare("SELECT id, unit_snapshot, is_selected, qty, rate FROM booking_line_items WHERE booking_id = ?");
         $st->execute([$bookingId]);
         foreach ($st->fetchAll() as $row) {
             $final['l' . $row['id']] = ['unit' => $row['unit_snapshot'], 'selected' => (bool) $row['is_selected'],
@@ -653,7 +761,7 @@ function booking_final_charge_lines(PDO $pdo, ?int $bookingId, array $lines): ar
         }
     }
     foreach ($lines as $key => $line) {
-        if ($line['section'] !== 'charge') {
+        if (!section_is_priced($line['section'])) {
             continue;
         }
         $final[$key] = ['unit' => $line['unit'], 'selected' => $line['new']['selected'],
@@ -678,7 +786,7 @@ function write_booking_lines(PDO $pdo, int $bookingId, array $lines): array
             continue;
         }
         $new = $line['new'];
-        $rate = $line['section'] === 'charge' ? $new['rate'] : null;
+        $rate = section_is_priced($line['section']) ? $new['rate'] : null;
         if ($line['line_id'] === null) {
             $insert->execute([$bookingId, $line['catalog_id'], $line['section'], $line['label'], $line['unit'],
                 $new['selected'] ? 1 : 0, $new['qty'], $rate, $new['notes'], $line['sort_order']]);
@@ -697,7 +805,7 @@ function write_booking_lines(PDO $pdo, int $bookingId, array $lines): array
 function booking_line_change(array $line): ?array
 {
     $new = $line['new'];
-    $rate = $line['section'] === 'charge' ? $new['rate'] : null;
+    $rate = section_is_priced($line['section']) ? $new['rate'] : null;
     if ($line['line_id'] === null) {
         return ['added' => $line['label'], 'section' => $line['section'], 'rate' => $rate, 'qty' => $new['qty']];
     }
@@ -758,14 +866,14 @@ function venue_clashes(PDO $pdo, ?int $bookingId, ?int $venueId, ?string $eventD
  * Every booking that occupies a venue in the given month, oldest first.
  *
  * Cancelled bookings are left out: they release the slot. Unlike the registry this is NOT scoped to
- * the signed-in vendor — the whole point is that a vendor can see a date is already taken. What a
- * vendor may *read* about someone else's booking is limited by calendar_entry_is_own(); the page
+ * the signed-in user — the whole point is that a user can see a date is already taken. What a
+ * user may *read* about someone else's booking is limited by calendar_entry_is_own(); the page
  * shows only the venue and the status for those.
  */
 function calendar_bookings(PDO $pdo, string $monthStart, string $monthEnd): array
 {
-    $st = $pdo->prepare("SELECT b.id, b.unique_id, b.revision, b.status, b.vendor_id, b.event_date,
-                                b.client_name, b.firm_name, b.venue_location, b.start_time,
+    $st = $pdo->prepare("SELECT b.id, b.unique_id, b.revision, b.status, b.user_id, b.event_date,
+                                b.client_name, b.firm_name, b.venue_location, b.setup_time, b.start_time,
                                 b.slot_name, b.slot_start, b.slot_end,
                                 COALESCE(v.name, b.venue_other) AS venue
                            FROM bookings b LEFT JOIN venues v ON v.id = b.venue_id
@@ -778,7 +886,7 @@ function calendar_bookings(PDO $pdo, string $monthStart, string $monthEnd): arra
 /** True when this viewer owns the booking (admins own them all) and may see its client details. */
 function calendar_entry_is_own(array $user, array $entry): bool
 {
-    return $user['role'] === 'admin' || (int) $entry['vendor_id'] === (int) $user['id'];
+    return $user['role'] === 'admin' || (int) $entry['user_id'] === (int) $user['id'];
 }
 
 /**
@@ -810,7 +918,7 @@ function venue_availability(PDO $pdo, array $entries, int $daysInMonth): array
     return $rows;
 }
 
-/** Warning text for clashes. Vendors aren't shown other vendors' SLA numbers. */
+/** Warning text for clashes. Users aren't shown other users' SLA numbers. */
 function venue_clash_messages(array $clashes, ?string $eventDate, bool $isAdmin): array
 {
     $messages = [];

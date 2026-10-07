@@ -13,7 +13,8 @@ C:/xampp/php/php.exe tests/run.php
 
 Pure functions only: money in paisa, Rs. and lakh/crore formatting, amounts in words, the totals chain,
 the refund suggestion, input validation, passwords and device cookies, the authorization rules, the
-direct-edit/amendment classification, document helpers and the admin-data rules.
+direct-edit/amendment classification, document helpers, the admin-data rules, and the dashboard's chart
+scales, short money figures and periods.
 
 ## 2. Database checks
 
@@ -52,6 +53,7 @@ MYSQL="C:/xampp/mysql/bin/mysql.exe -u root -h 127.0.0.1 -P 3307"
 $MYSQL -e "DROP DATABASE IF EXISTS aomess_e2e; CREATE DATABASE aomess_e2e CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
 $MYSQL aomess_e2e < database/schema.sql
 $MYSQL aomess_e2e < database/seed.sql
+$MYSQL aomess_e2e < database/menu_data.sql   # the menus e2e_menus.sh books
 AOMESS_DB_NAME=aomess_e2e C:/xampp/php/php.exe -S 127.0.0.1:8093 -t public
 ```
 
@@ -60,12 +62,14 @@ re-import between runs):
 
 | Script | Covers |
 |---|---|
-| `tests/e2e.sh` | sign-in, throttling, sessions, CSRF, vendor approval |
+| `tests/e2e.sh` | sign-in, throttling, sessions, CSRF, user approval, who may open the dashboard |
 | `tests/e2e_booking.sh` | the booking form, event slots and availability, saving, validation, access rules |
-| `tests/e2e_lifecycle.sh` | registry, confirm, complete, cancel, delete, amendments |
+| `tests/e2e_lifecycle.sh` | registry, confirm, complete, cancel, delete, amendments, the dashboard with data |
 | `tests/e2e_payments.sh` | payments, refunds, voids, the refund cap |
 | `tests/e2e_documents.sh` | agreement, invoice, operations sheet |
 | `tests/e2e_attachments.sh` | uploads, downloads, voiding, catalog, venue and event slot admin |
+| `tests/e2e_vendors.sh` | vendor categories, vendors, services, assigning to a booking, vendor invoices and payments |
+| `tests/e2e_menus.sh` | Menus page (packages, dishes, menu cards), choosing a package on a booking, the menu on the documents |
 
 ```bash
 bash tests/e2e_lifecycle.sh

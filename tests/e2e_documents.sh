@@ -27,9 +27,9 @@ TODAY=$(date +%Y-%m-%d)
 HASH=$($PHP -r 'echo password_hash("Passw0rd-e2e", PASSWORD_DEFAULT);')
 $MYSQL -e "UPDATE users SET password_hash='$HASH', must_change_password=0 WHERE username='admin';
   INSERT INTO users (username,password_hash,role,name,firm_name,rep_name,contact,status) VALUES
-  ('uzair','$HASH','vendor','Uzair Khan','Uzair Caterers','Uzair Khan','0312-2159834','active'),
-  ('bilal','$HASH','vendor','Bilal Ahmed','Bilal Events','Bilal Ahmed','0300-1111111','active');"
-VENDOR_ID=$($MYSQL -e "SELECT id FROM users WHERE username='uzair'")
+  ('uzair','$HASH','user','Uzair Khan','Uzair Caterers','Uzair Khan','0312-2159834','active'),
+  ('bilal','$HASH','user','Bilal Ahmed','Bilal Events','Bilal Ahmed','0300-1111111','active');"
+USER_ID=$($MYSQL -e "SELECT id FROM users WHERE username='uzair'")
 LAWN_A=$($MYSQL -e "SELECT id FROM venues WHERE name='Lawn A'")
 SLOT_A=$($MYSQL -e "SELECT id FROM venue_slots WHERE venue_id=$LAWN_A AND name='Evening'")
 VENUE_CHARGE=$($MYSQL -e "SELECT id FROM item_catalog WHERE name='Venue Charges'")
@@ -46,7 +46,7 @@ FORM=( "client_name=Ayesha Siddiqui" "client_relation=D/o Muhammad Siddiqui" "cl
        "setup_time=16:00" "start_time=19:30" "menu_type=Buffet" "food_items=Mutton Karahi
 Chicken Biryani" "theme=Ivory and gold" "stage=Fabric" "agreement_day=14th" "agreement_month=September, 2026"
        "discount=5000" "refund_pct_30=50" "refund_pct_7=25" "special_commitments=Dedicated event coordinator on site"
-       "vendor_id=$VENDOR_ID"
+       "user_id=$USER_ID"
        "firm_name=Uzair Caterers" "rep_name=Uzair Khan" "rep_contact=0312-2159834"
        "lines[c$VENUE_CHARGE][present]=1" "lines[c$VENUE_CHARGE][selected]=1" "lines[c$VENUE_CHARGE][rate]=50000"
        "lines[c$TRACING][present]=1" "lines[c$TRACING][selected]=1" "lines[c$TRACING][rate]=300" "lines[c$TRACING][qty]=10"
@@ -77,7 +77,7 @@ contains "SLA-$YEAR-0001" "agreement number"
 contains "Ayesha Siddiqui" "client name"
 contains "D/o Muhammad Siddiqui" "client relation"
 contains "42101-1234567-1" "CNIC on the agreement"
-contains "Uzair Caterers" "vendor firm"
+contains "Uzair Caterers" "user firm"
 contains "14 Feb 2027" "event date"
 contains "(Sunday)" "day of the week calculated"
 contains "Lawn A" "venue"
@@ -120,7 +120,7 @@ contains "Rs. 2,48,000" "balance after the payment"
 contains "Two Lakh Forty Eight Thousand Rupees Only" "balance in words after the payment"
 
 echo "== Operations sheet"
-req a GET "/documents/vendor_sheet.php?id=$ID"
+req a GET "/documents/ops_sheet.php?id=$ID"
 contains "Operations Sheet" "ops sheet opens"
 contains "No. of PAX" "PAX row (from the reference sheet)"
 contains "Sofa" "ops item listed"
@@ -150,11 +150,11 @@ contains "Amount retained" "amount retained instead of a balance"
 contains "Nothing further is payable" "no balance due on a cancelled booking"
 
 echo "== Access"
-req v GET "/documents/agreement.php?id=$ID"; expect "$CODE" "404" "documents are admin-only: owner vendor gets 404 on the agreement"
-req v GET "/documents/vendor_sheet.php?id=$ID"; expect "$CODE" "404" "documents are admin-only: owner vendor gets 404 on the ops sheet"
-req o GET "/documents/agreement.php?id=$ID"; expect "$CODE" "404" "another vendor: 404 on the agreement"
-req o GET "/documents/invoice.php?id=$ID"; expect "$CODE" "404" "another vendor: 404 on the invoice"
-req o GET "/documents/vendor_sheet.php?id=$ID"; expect "$CODE" "404" "another vendor: 404 on the ops sheet"
+req v GET "/documents/agreement.php?id=$ID"; expect "$CODE" "200" "owner user can print the agreement"
+req v GET "/documents/ops_sheet.php?id=$ID"; expect "$CODE" "200" "owner user can print the ops sheet"
+req o GET "/documents/agreement.php?id=$ID"; expect "$CODE" "404" "another user: 404 on the agreement"
+req o GET "/documents/invoice.php?id=$ID"; expect "$CODE" "404" "another user: 404 on the invoice"
+req o GET "/documents/ops_sheet.php?id=$ID"; expect "$CODE" "404" "another user: 404 on the ops sheet"
 req a GET "/documents/invoice.php?id=999999"; expect "$CODE" "404" "missing booking: 404"
 
 echo; echo "$PASS passed, $FAIL failed"; rm -rf "$T"; [ $FAIL -eq 0 ]

@@ -1,7 +1,7 @@
 -- ---------------------------------------------------------------------------
 -- 002_venue_location
 --
--- Venues gain a location (the hall/lawn's place inside AO Mess, e.g. "Ground
+-- Venues gain a location (the hall/lawn's place inside Booking Organizer, e.g. "Ground
 -- Floor, Block B"). Bookings keep their own copy of it, the same way they keep
 -- firm_name and line-item labels: the booking must still read correctly years
 -- later even if the venue is later moved, renamed or deactivated.

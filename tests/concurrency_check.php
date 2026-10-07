@@ -44,7 +44,7 @@ if (($argv[1] ?? '') === 'worker') {
         } else { // amend: move the booking to another venue (and that venue's slot)
             $b = $pdo->query('SELECT * FROM bookings WHERE id = ' . (int) $args['id'])->fetch();
             $fields = array_intersect_key($b, booking_field_specs());
-            $fields['vendor_id'] = (int) $b['vendor_id'];
+            $fields['user_id'] = (int) $b['user_id'];
             $fields['venue_id'] = $args['venue_id'];
             $fields['venue_other'] = null;
             $slot = $pdo->query('SELECT * FROM venue_slots WHERE id = ' . (int) $args['slot_id'])->fetch();
@@ -97,19 +97,19 @@ foreach (['schema.sql', 'seed.sql'] as $file) {
     }
 }
 $pdo->exec("INSERT INTO users (username, password_hash, role, name, firm_name, rep_name, contact, status)
-            VALUES ('racevendor', 'x', 'vendor', 'Race Vendor', 'Race Firm', 'Race Rep', '0300', 'active')");
-$vendorId = (int) $pdo->lastInsertId();
+            VALUES ('raceuser', 'x', 'user', 'Race User', 'Race Firm', 'Race Rep', '0300', 'active')");
+$userId = (int) $pdo->lastInsertId();
 $adminId = (int) $pdo->query("SELECT id FROM users WHERE username = 'admin'")->fetchColumn();
 $venue = static fn(string $name): int => (int) $pdo->query('SELECT id FROM venues WHERE name = ' . $pdo->quote($name))->fetchColumn();
 $seq = 0;
 $slotOf = static function (int $venueId, string $name) use ($pdo): int {
     return (int) $pdo->query("SELECT id FROM venue_slots WHERE venue_id = $venueId AND name = " . $pdo->quote($name))->fetchColumn();
 };
-$makeBooking = static function (int $venueId, string $date, string $status, string $slot = 'Morning') use ($pdo, $vendorId, $adminId, &$seq, $slotOf): int {
+$makeBooking = static function (int $venueId, string $date, string $status, string $slot = 'Morning') use ($pdo, $userId, $adminId, &$seq, $slotOf): int {
     $seq++;
-    $pdo->prepare("INSERT INTO bookings (unique_id, vendor_id, created_by, status, client_name, event_date, venue_id, slot_id, slot_name, guests, per_head_rate)
+    $pdo->prepare("INSERT INTO bookings (unique_id, user_id, created_by, status, client_name, event_date, venue_id, slot_id, slot_name, guests, per_head_rate)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 100, 1000.00)")
-        ->execute([sprintf('SLA-RACE-%04d', $seq), $vendorId, $adminId, $status, "Client $seq", $date, $venueId, $slotOf($venueId, $slot), $slot]);
+        ->execute([sprintf('SLA-RACE-%04d', $seq), $userId, $adminId, $status, "Client $seq", $date, $venueId, $slotOf($venueId, $slot), $slot]);
     $id = (int) $pdo->lastInsertId();
     db_transaction(static fn(PDO $p) => recompute_booking_totals($p, $id), $pdo);
     return $id;
@@ -144,7 +144,7 @@ $race = static function (int $venueId, array $jobs) use ($config): array {
 // 1. Two people booking the same venue, date and slot at the same moment.
 echo "== Two new bookings for Lawn A, Evening, on the same date, at the same moment\n";
 $lawnA = $venue('Lawn A');
-$post = static fn(string $client) => ['client_name' => $client, 'vendor_id' => (string) $vendorId, 'event_date' => '2027-06-01',
+$post = static fn(string $client) => ['client_name' => $client, 'user_id' => (string) $userId, 'event_date' => '2027-06-01',
     'venue_id' => (string) $lawnA, 'slot_id' => (string) $slotOf($lawnA, 'Evening'), 'guests' => '100', 'per_head_rate' => '1000'];
 $out = $race($lawnA, [['create', $post('Racer 1')], ['create', $post('Racer 2')]]);
 sort($out);

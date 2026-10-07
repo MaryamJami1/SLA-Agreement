@@ -27,7 +27,7 @@ require APP_ROOT . '/app/views/layout_top.php';
 <div class="auth-card">
   <img src="<?= h(url('assets/img/logo.png')) ?>" alt="ASK Organizers" class="login-logo">
   <h2>ASK Organizers Portal</h2>
-  <p class="login-sub">Sign in to the AO Mess SLA register.</p>
+  <p class="login-sub">Sign in to the Booking Organizer SLA register.</p>
 
   <form method="post" action="<?= h(url('auth/login.php')) ?>" novalidate>
     <?= csrf_field() ?>
@@ -39,6 +39,6 @@ require APP_ROOT . '/app/views/layout_top.php';
   </form>
 
   <p class="login-error"><?= h($error) ?></p>
-  <p class="login-switch">New vendor? <a href="<?= h(url('auth/register.php')) ?>">Create an account</a></p>
+  <p class="login-switch">New user? <a href="<?= h(url('auth/register.php')) ?>">Create an account</a></p>
 </div>
 <?php require APP_ROOT . '/app/views/layout_bottom.php';

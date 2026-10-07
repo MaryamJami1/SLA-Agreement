@@ -75,3 +75,20 @@ function rs($amount): string
 {
     return format_rs(is_int($amount) ? $amount : decimal_to_paisa($amount ?? '0'));
 }
+
+/**
+ * "today" / "tomorrow" / "in 5 days" beside an event in the next fortnight, so what needs attention
+ * stands out. Empty for a past date, a distant one, or none.
+ */
+function event_when_chip(?string $date, DateTimeImmutable $today): string
+{
+    if (!$date) {
+        return '';
+    }
+    $days = (int) $today->diff(new DateTimeImmutable($date))->format('%r%a');
+    if ($days < 0)   { return ''; }
+    if ($days === 0) { return '<span class="due-chip now">today</span>'; }
+    if ($days === 1) { return '<span class="due-chip now">tomorrow</span>'; }
+    if ($days <= 14) { return '<span class="due-chip soon">in ' . $days . ' days</span>'; }
+    return '';
+}

@@ -13,10 +13,10 @@ $netPaid = $d['paid'] - $d['refunded'];
   <button type="button" class="btn primary" id="print-btn">Print / Save as PDF</button>
   <a class="btn" href="<?= h(url('booking/form.php?id=' . (int) $booking['id'])) ?>">Back to the booking</a>
   <a class="btn" href="<?= h(url('documents/agreement.php?id=' . (int) $booking['id'])) ?>">Agreement</a>
-  <a class="btn" href="<?= h(url('documents/vendor_sheet.php?id=' . (int) $booking['id'])) ?>">Ops sheet</a>
+  <a class="btn" href="<?= h(url('documents/ops_sheet.php?id=' . (int) $booking['id'])) ?>">Ops sheet</a>
 </div>
 
-<div class="doc card">
+<div class="doc card" style="--z:<?= h(invoice_print_zoom($booking, $d)) ?>">
 <?php if ($watermark): ?>
   <div class="watermark"><?= h($watermark) ?></div>
 <?php endif; ?>
@@ -49,7 +49,7 @@ $netPaid = $d['paid'] - $d['refunded'];
       <p>Date: <?= h(ddate($booking['event_date'])) ?><?= $d['event_day'] ? ' (' . h($d['event_day']) . ')' : '' ?></p>
       <p>Venue: <?= h(dvenue($d)) ?></p>
       <p>Guests: <?= $guests ?></p>
-      <p>Vendor: <?= h(dv($booking['firm_name'])) ?></p>
+      <p>User: <?= h(dv($booking['firm_name'])) ?></p>
     </div>
   </div>
 
@@ -62,18 +62,10 @@ $netPaid = $d['paid'] - $d['refunded'];
           <div class="doc-note">Special commitments: <?= h($booking['special_commitments']) ?></div>
 <?php endif; ?>
         </td>
-        <td class="num"><?= h(rs($booking['guest_charges'])) ?></td>
+        <td class="num"><?= h(rs($booking['sub_total'])) ?></td>
       </tr>
-<?php foreach ($d['charges'] as $line): ?>
-      <tr><td><?= h($line['label']) ?>
-<?php if ($line['unit_snapshot'] === 'per unit'): ?> <span class="doc-note">(<?= (int) $line['qty'] ?> × <?= h(rs($line['rate'])) ?>)</span>
-<?php elseif ($line['unit_snapshot'] === 'per head'): ?> <span class="doc-note">(<?= $guests ?> guests × <?= h(rs($line['rate'])) ?>)</span>
-<?php endif; ?>
-        </td><td class="num"><?= h(rs($line['amount'])) ?></td></tr>
-<?php endforeach; ?>
     </tbody>
     <tfoot>
-      <tr><td>Sub total</td><td class="num"><?= h(rs($booking['sub_total'])) ?></td></tr>
 <?php if (decimal_to_paisa($booking['discount']) > 0): ?>
       <tr><td>Discount</td><td class="num">− <?= h(rs($booking['discount'])) ?></td></tr>
 <?php endif; ?>
@@ -120,5 +112,5 @@ $netPaid = $d['paid'] - $d['refunded'];
 
   <p class="doc-footer">Thank you for choosing <?= h(cfg('ORG_NAME', 'ASK Organizers')) ?>.
     This invoice is issued against Service Level Agreement <?= h(format_document_number($booking['unique_id'], 'SLA', $rev)) ?>
-    held on file with AO Mess.</p>
+    held on file with Booking Organizer.</p>
 </div>

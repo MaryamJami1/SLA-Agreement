@@ -9,7 +9,7 @@ $user = require_login();
 $bookingId = ctype_digit((string) ($_POST['booking_id'] ?? '')) ? (int) $_POST['booking_id'] : 0;
 $booking = load_booking_for_user(db(), $bookingId, $user, 'view');
 if (!can_upload_attachment($booking, $user)) {
-    not_found(); // vendors may only attach to their own drafts
+    not_found(); // users may only attach to their own drafts
 }
 $back = 'booking/form.php?id=' . $bookingId . '#attachments';
 

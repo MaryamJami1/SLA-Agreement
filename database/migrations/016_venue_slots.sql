@@ -1,5 +1,5 @@
 -- ---------------------------------------------------------------------------
--- 003_venue_slots
+-- 016_venue_slots
 --
 -- Event slots: each venue offers fixed time slots (e.g. Morning 12:00–15:00)
 -- that the admin configures on the Event Slots page. A booking holds one slot
@@ -55,4 +55,4 @@ SELECT v.id, d.name, d.icon, d.start_time, d.end_time, d.sort_order
               UNION ALL SELECT 'Afternoon', '☀️', '16:00:00', '19:00:00', 20
               UNION ALL SELECT 'Evening',   '🌙', '20:00:00', '00:00:00', 30) d;
 
-INSERT INTO schema_version (version) VALUES (3);
+INSERT INTO schema_version (version) VALUES (16);

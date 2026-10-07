@@ -7,7 +7,7 @@ require_once APP_ROOT . '/app/lifecycle.php';
 require_post();
 $user = require_login();
 [$id, $version] = posted_booking_ref();
-load_booking_for_user(db(), $id, $user, 'delete'); // owner vendor or admin, drafts only
+load_booking_for_user(db(), $id, $user, 'delete'); // owner user or admin, drafts only
 
 $deleted = run_lifecycle_action(
     static fn() => delete_draft(db(), $user, $id, $version),

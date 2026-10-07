@@ -4,7 +4,7 @@
  * changes to a confirmed booking (direct edits and amendments).
  *
  * Lock order everywhere: venue row(s) first (ascending id, one statement), then the booking, then the
- * vendor's users row with a shared lock. Every operation is one transaction via db_transaction(),
+ * user's users row with a shared lock. Every operation is one transaction via db_transaction(),
  * which retries a deadlock once.
  */
 declare(strict_types=1);
@@ -21,9 +21,9 @@ const DIRECT_EDIT_FIELDS = [
     'client_contact', 'client_contact2', 'client_address',
     'reference_name', 'reference_department', 'decor_by',
     'received_by', 'received_date', 'received_time',
-    'vendor_sign_name', 'vendor_sign_date', 'client_sign_name', 'client_sign_date',
+    'user_sign_name', 'user_sign_date', 'client_sign_name', 'client_sign_date',
 ];
-const SIGNATURE_FIELDS = ['vendor_sign_name', 'vendor_sign_date', 'client_sign_name', 'client_sign_date'];
+const SIGNATURE_FIELDS = ['user_sign_name', 'user_sign_date', 'client_sign_name', 'client_sign_date'];
 const REASON_MAX = 1000;
 
 // ---------------------------------------------------------------------------
@@ -54,15 +54,15 @@ function lock_booking(PDO $pdo, int $id, int $version): array
     return $booking;
 }
 
-/** The vendor's row under a shared lock if it is an active vendor, else null. */
-function lock_active_vendor(PDO $pdo, ?int $vendorId): ?array
+/** The user's row under a shared lock if it is an active user, else null. */
+function lock_active_user(PDO $pdo, ?int $userId): ?array
 {
-    if ($vendorId === null) {
+    if ($userId === null) {
         return null;
     }
     $st = $pdo->prepare("SELECT id, firm_name, rep_name, contact FROM users
-                          WHERE id = ? AND role = 'vendor' AND status = 'active' LOCK IN SHARE MODE");
-    $st->execute([$vendorId]);
+                          WHERE id = ? AND role = 'user' AND status = 'active' LOCK IN SHARE MODE");
+    $st->execute([$userId]);
     return $st->fetch() ?: null;
 }
 
@@ -96,7 +96,7 @@ function clean_reason($raw): string
     return $reason;
 }
 
-/** Problems that stop a booking from being (or staying) confirmed, apart from the vendor and venue conflicts. */
+/** Problems that stop a booking from being (or staying) confirmed, apart from the user and venue conflicts. */
 function confirm_requirement_problems(PDO $pdo, array $b, bool $venueMayBeInactive = false): array
 {
     $problems = [];
@@ -188,8 +188,8 @@ function confirm_booking(PDO $pdo, array $admin, int $id, int $version, $overrid
         if ($b['venue_id'] !== null && $b['slot_id'] === null) {
             $problems[] = 'an event slot';
         }
-        if (lock_active_vendor($pdo, $b['vendor_id'] === null ? null : (int) $b['vendor_id']) === null) {
-            array_unshift($problems, 'an active, approved vendor');
+        if (lock_active_user($pdo, $b['user_id'] === null ? null : (int) $b['user_id']) === null) {
+            array_unshift($problems, 'an active, approved user');
         }
         if ($problems) {
             throw new LifecycleRefused('This booking can\'t be confirmed yet. It needs ' . implode(', ', $problems) . '.');
@@ -280,6 +280,11 @@ function delete_draft(PDO $pdo, array $user, int $id, int $version): string
         if ((int) $st->fetchColumn() > 0) {
             throw new LifecycleRefused('This draft has payment records (including voided ones), so it can\'t be deleted. Cancel it instead.');
         }
+        $st = $pdo->prepare('SELECT COUNT(*) FROM vendor_invoices WHERE booking_id = ?');
+        $st->execute([$id]);
+        if ((int) $st->fetchColumn() > 0) {
+            throw new LifecycleRefused('This draft has vendor invoices (including voided ones), so it can\'t be deleted. Cancel it instead.');
+        }
         $st = $pdo->prepare('SELECT stored_name, original_name FROM attachments WHERE booking_id = ?');   // 2.
         $st->execute([$id]);
         $files = $st->fetchAll();
@@ -326,7 +331,8 @@ function classify_confirmed_changes(array $old, array $fields, array $lines): ar
     foreach ($lines as $line) {
         if ($change = booking_line_change($line)) {
             $lineChanges[] = $change;
-            if ($line['section'] !== 'ops_item') {
+            // Operations items are internal unless they carry money, which changes the agreed amount.
+            if ($line['section'] !== 'ops_item' || $line['rate'] !== null || $line['new']['rate'] !== null) {
                 $amendLines[] = $change;
             }
         }
@@ -370,7 +376,7 @@ function save_booking_confirmed_tx(PDO $pdo, array $admin, int $id, int $version
                                    string $amendReason, string $override): array
 {
     return db_transaction(static function (PDO $pdo) use ($admin, $id, $version, $fields, $lines, $amendReason, $override) {
-        // Step 0: locks — venues (old and new, ascending) before the booking, then the vendor.
+        // Step 0: locks — venues (old and new, ascending) before the booking, then the user.
         $st = $pdo->prepare('SELECT venue_id, event_date, slot_id FROM bookings WHERE id = ?');
         $st->execute([$id]);
         $pre = $st->fetch() ?: ['venue_id' => null, 'event_date' => null, 'slot_id' => null];
@@ -388,14 +394,14 @@ function save_booking_confirmed_tx(PDO $pdo, array $admin, int $id, int $version
         if ($old['status'] !== 'confirmed' || $admin['role'] !== 'admin') {
             throw new BookingValidationError(['status' => 'This booking is no longer confirmed, so it can\'t be changed here.']);
         }
-        $vendorChanges = $fields['vendor_id'] !== ($old['vendor_id'] === null ? null : (int) $old['vendor_id']);
-        if ($vendorChanges) {
-            $vendor = lock_active_vendor($pdo, $fields['vendor_id']);
-            if ($vendor === null) {
-                throw new BookingValidationError(['vendor_id' => 'Vendor: a confirmed booking needs an active, approved vendor.']);
+        $userChanges = $fields['user_id'] !== ($old['user_id'] === null ? null : (int) $old['user_id']);
+        if ($userChanges) {
+            $bookedUser = lock_active_user($pdo, $fields['user_id']);
+            if ($bookedUser === null) {
+                throw new BookingValidationError(['user_id' => 'User: a confirmed booking needs an active, approved user.']);
             }
         }
-        $fields = fill_vendor_snapshot($pdo, $fields);
+        $fields = fill_user_snapshot($pdo, $fields);
 
         $c = classify_confirmed_changes($old, $fields, $lines);
         $amended = $c['amendment_fields'] || $c['amendment_lines'];
@@ -404,7 +410,7 @@ function save_booking_confirmed_tx(PDO $pdo, array $admin, int $id, int $version
         }
 
         // The result must still be a valid confirmed booking.
-        $chargeLines = booking_final_charge_lines($pdo, $id, $lines);
+        $chargeLines = booking_final_charge_lines($pdo, $id, $lines) + menu_extra_charge_lines($fields['menu_selection'] ?? null);
         $discount = decimal_to_paisa($fields['discount']);
         $totals = compute_totals(decimal_to_paisa($fields['per_head_rate']), (int) $fields['guests'], $discount, $chargeLines, [], 'confirmed');
         $errors = validate_totals($totals, $discount);

@@ -1,5 +1,5 @@
 /* ======================================================================
-   AO Mess — application UI
+   Booking Organizer — application UI
    ----------------------------------------------------------------------
    Two distinct registers, on purpose:
 
@@ -202,6 +202,22 @@ form.inline{display:inline;margin:0;}
   border-radius:2px 2px 0 0;
 }
 
+/* An admin has eight tabs, which do not fit beside the brand and the account at the normal size.
+   The bar must stay one row — the sticky table heads and the step rail sit 58px under it — so the
+   tabs tighten, and as the window narrows the account name and then the brand text give way. */
+@media (min-width:1001px){
+  .many-tabs .appnav a{padding:0 9px;font-size:.8125rem;}
+  .many-tabs .brand{padding-right:12px;margin-right:2px;}
+  .many-tabs .appbar-user{padding-left:12px;gap:9px;}
+  .many-tabs .who-name{max-width:96px;}
+}
+@media (min-width:1001px) and (max-width:1215px){
+  .many-tabs .who{display:none;}
+}
+@media (min-width:1001px) and (max-width:1110px){
+  .many-tabs .brand-text{display:none;}
+}
+
 /* -- Account cluster -- */
 .appbar-user{
   display:flex;align-items:center;gap:11px;
@@ -389,6 +405,52 @@ select{
   background-repeat:no-repeat;
   background-position:right 11px center;
   padding-right:32px;
+}
+select:open{border-color:var(--brand);box-shadow:var(--ring);}   /* on its own: older browsers drop the rule */
+
+/* Customizable select (Chrome / Edge 135+): the open list is styled too. Every other browser keeps
+   its own list under the styled box above, so nothing depends on this. */
+@supports (appearance: base-select){
+  select,::picker(select){appearance:base-select;}
+  select{
+    display:flex;align-items:center;gap:8px;
+    background-image:none;padding-right:11px;   /* the picker icon below draws the arrow */
+  }
+  select::picker-icon{
+    content:"";flex:none;width:12px;height:8px;margin-left:auto;
+    background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='none' stroke='%234A554F' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M1 1.5 6 6.5l5-5'/%3E%3C/svg%3E") no-repeat center;
+    transition:transform var(--t);
+  }
+  select:open::picker-icon{transform:rotate(180deg);}
+  select:disabled::picker-icon{opacity:.35;}
+
+  ::picker(select){
+    margin-top:4px;padding:4px;
+    max-height:min(360px,60vh);overflow-y:auto;
+    background:var(--surface);
+    border:1px solid var(--line);border-radius:var(--r);
+    box-shadow:var(--sh-3);
+  }
+  select option{
+    display:flex;align-items:center;gap:10px;
+    padding:8px 10px;border-radius:var(--r-xs);
+    font-size:.875rem;font-weight:400;color:var(--ink);line-height:1.35;
+    letter-spacing:normal;text-transform:none;   /* not the group heading's */
+    cursor:pointer;
+  }
+  select option:hover,select option:focus-visible{background:var(--surface-3);outline:none;}
+  select option:checked{background:var(--brand-tint);color:var(--brand-dark);font-weight:600;}
+  select option::checkmark{order:1;margin-left:auto;content:"\2713";color:var(--brand);font-weight:700;}
+  select option:disabled{color:var(--ink-3);cursor:default;background:none;}
+
+  /* Groups (dishes by category): the optgroup's own text is its heading, small and quiet; the
+     options inside reset their type above. */
+  select optgroup{
+    padding:6px 0 2px 10px;
+    font-size:.6875rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);
+  }
+  select optgroup option{margin-left:-10px;}
+  select optgroup + optgroup{margin-top:4px;border-top:1px solid var(--line-2);}
 }
 input[type=checkbox],input[type=radio]{
   width:16px;height:16px;accent-color:var(--brand);cursor:pointer;flex:none;margin:0;
@@ -654,12 +716,53 @@ section.block h3{
 }
 section.block h3::after{content:"";flex:1;border-bottom:1px solid var(--line-2);}
 
-.checklist{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px 28px;}
-.checklist-group h4{
-  margin:0 0 10px;font-size:.75rem;font-weight:600;
-  letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);
-  padding-bottom:7px;border-bottom:1px solid var(--line-2);
+/* Items to provide: one list, one fold-out group per kind of item. */
+.item-group{border:1px solid var(--line-2);border-radius:var(--r-sm);margin:0 0 10px;background:var(--surface);}
+.item-group > summary{
+  display:flex;align-items:center;gap:10px;
+  padding:11px 14px;cursor:pointer;list-style:none;
+  font-size:.875rem;font-weight:600;color:var(--ink-2);
 }
+.item-group > summary::-webkit-details-marker{display:none;}
+.item-group > summary::before{content:"\25B8";font-size:.75rem;color:var(--ink-3);transition:transform var(--t);}
+.item-group[open] > summary::before{transform:rotate(90deg);}
+.item-group > summary:hover{background:var(--surface-2);}
+.item-group-count{margin-left:auto;font-size:.75rem;font-weight:600;color:var(--brand);}
+.item-group table.lines-table{margin:0;}
+.item-group .table-scroll{padding:0 8px 6px;border-top:1px solid var(--line-2);}
+
+/* Menu: the chosen package's dishes, extra dishes, and the copy the booking holds. */
+.menu-package{margin:4px 0 14px;padding:12px 14px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--surface-2);}
+.menu-package-head{margin:0 0 8px;font-size:.875rem;}
+.menu-courses{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px 18px;}
+.menu-extras .menu-courses{padding:10px 14px;border-top:1px solid var(--line-2);}
+.menu-course h4{margin:0 0 4px;font-size:.75rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);}
+.menu-course ul{margin:0;padding-left:18px;font-size:.875rem;line-height:1.6;}
+.menu-course > .check{display:flex;margin:2px 0;font-size:.875rem;}
+.menu-choice{list-style:none;margin-left:-18px;padding:4px 0;}
+.menu-choice .check{display:flex;margin:2px 0 2px 4px;}
+.menu-extra-count{margin-left:auto;font-size:.75rem;font-weight:600;color:var(--brand);}
+.menu-saved{margin:6px 0 4px;}
+.menu-saved .sub-head{margin-top:8px;}
+.menu-saved-list{margin:0;font-size:.875rem;}
+.menu-saved-list > div{display:flex;gap:10px;padding:3px 0;}
+.menu-saved-list dt{flex:0 0 110px;font-weight:600;color:var(--ink-2);}
+.menu-saved-list dd{margin:0;}
+.menu-jump{font-size:.875rem;}
+.menu-section-title{margin:26px 0 10px;font-size:.8125rem;letter-spacing:.07em;color:var(--ink-3);}
+.menu-admin-body{display:grid;grid-template-columns:minmax(0,2fr) minmax(220px,1fr);gap:18px;margin-top:10px;}
+.menu-admin-side .sub-head:first-child{margin-top:0;}
+.menu-card-thumb{display:block;max-width:100%;max-height:260px;margin:0 0 8px;border:1px solid var(--line-2);border-radius:var(--r-sm);}
+.menu-card-upload{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px;}
+.inline-form{display:inline-flex;gap:6px;margin:0;}
+.nowrap{white-space:nowrap;}
+tr.is-retired{opacity:.6;}
+@media (max-width:760px){.menu-admin-body{grid-template-columns:1fr;}}
+.sub-head{
+  margin:24px 0 10px;font-size:.75rem;font-weight:600;
+  letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);
+}
+.terms-list{margin:0;padding-left:20px;font-size:.875rem;line-height:1.7;}
 .check-row{
   display:flex;align-items:center;gap:10px;
   padding:5px 9px;margin:0 -9px;
@@ -679,6 +782,16 @@ section.block h3::after{content:"";flex:1;border-bottom:1px solid var(--line-2);
 .check-row input.note:hover{border-color:var(--line);background:var(--surface);}
 .check-row input.note:focus{background:var(--surface);}
 .check-row input.note:not(:placeholder-shown){background:var(--surface);border-color:var(--line);}
+/* Priced decor rows: rate, quantity and amount sit between the label and the note. */
+.check-row input.rate{width:96px;text-align:right;font-size:.8125rem;padding:5px 9px;min-height:30px;}
+.check-row input.qty{width:64px;font-size:.8125rem;padding:5px 9px;min-height:30px;}
+/* Vendor service picker: a category's services as checkboxes, each with its unit and rate. */
+.service-picker{margin:4px 0 14px;}
+.service-picker-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 8px;}
+.service-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:2px 28px;}
+.service-list .check-row select{width:auto;font-size:.8125rem;padding:5px 9px;min-height:30px;}
+@media (max-width:480px){.service-list{grid-template-columns:1fr;}}
+.check-row .line-amount{min-width:80px;text-align:right;font-size:.8125rem;font-variant-numeric:tabular-nums;}
 
 table.lines-table{width:100%;border-collapse:collapse;margin:14px 0 0;}
 table.lines-table th{
@@ -773,7 +886,7 @@ table.registry thead th{
   white-space:nowrap;
 }
 /* 58px assumes the page is the scrollport, so the head clears the app bar. Inside a horizontal
-   scroller (Vendors) the scrollport is that container instead, and the offset pushes the head
+   scroller (Users) the scrollport is that container instead, and the offset pushes the head
    down over the first row — hiding it. There, pin the head to the container's own top. */
 .table-scroll table.registry thead th{top:0;}
 table.registry thead th.num{text-align:right;}
@@ -944,6 +1057,13 @@ table.payment-table tr.refund td.num{color:var(--danger);font-weight:500;}
 .payment-form .grid{margin-bottom:14px;}
 .charge-line td{font-size:.875rem;}
 
+/* Vendors on a booking: one block per vendor. */
+.vendor-group{margin-top:18px;padding-top:14px;border-top:1px solid var(--line-2);}
+.vendor-group:first-of-type{border-top:none;padding-top:0;}
+.vendor-group h4{margin:0;font-size:.9375rem;font-weight:600;}
+.vendor-group h4 .muted{font-weight:400;}
+.vendors > h4{margin:22px 0 0;font-size:.875rem;font-weight:600;}
+
 /* ======================================================================
    13. Admin rows & attachments
    ====================================================================== */
@@ -956,6 +1076,13 @@ table.payment-table tr.refund td.num{color:var(--danger);font-weight:500;}
 .admin-row .field.grow{flex:1;min-width:200px;}
 .admin-row .field.grow input{width:100%;}
 .admin-row .field.narrow input,.admin-row .field.narrow select{width:126px;}
+.catalog-group .page-head{margin-bottom:6px;}
+.catalog-group h3 .muted{font-weight:400;}
+.catalog-filter{max-width:240px;width:100%;}
+.catalog-row[hidden]{display:none;}
+.catalog-row.is-retired{opacity:.6;}
+.catalog-chip{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;background:var(--line-2);
+  font-size:.7rem;font-weight:600;letter-spacing:.02em;text-transform:uppercase;}
 .admin-row-extra{padding:0 0 14px;border-bottom:1px solid var(--line-2);}
 
 /* Event Slot Management */
@@ -1124,6 +1251,8 @@ table.doc-table.ops td.tick,table.doc-table.ops th.tick{width:64px;}
 .doc-list{font-size:.9375rem;margin:0 0 11px;padding-left:22px;}
 .doc-policy,.doc-note{font-size:.875rem;color:var(--ink-2);}
 .doc-words{font-size:.9375rem;margin:8px 0;font-style:italic;}
+/* The due date shares the line with the amount in words. */
+.doc-due{font-style:normal;margin-left:18px;white-space:nowrap;}
 .doc-balance{
   font-size:1.0625rem;font-weight:600;color:var(--ink);
   border-top:2px solid var(--ink);padding-top:11px;margin-top:14px;
@@ -1430,7 +1559,282 @@ body.dialog-open{overflow:hidden;}
 
 
 /* ======================================================================
-   19. Responsive
+   19. Dashboard
+   ====================================================================== */
+:root{
+  /* Chart series. Checked with a palette validator against the white card surface: booked and
+     collected as a pair, the four statuses in the order they stack, the four payment methods round
+     their ring. The status hues keep the badge colours' families but are re-stepped, so neighbours
+     in a stack stay apart for colour-blind readers — which is also why "completed" is blue here
+     and not a second green. Booked is blue and collected is green wherever they appear, tiles included. */
+  --viz-booked:#2472B8;
+  --viz-collected:#1F8A52;
+  --viz-completed:#2F6FA8;
+  --viz-confirmed:#35A574;
+  --viz-draft:#C99328;
+  --viz-cancelled:#B13C2C;
+  --viz-cash:#2472B8;
+  --viz-bank:#EB6834;
+  --viz-cheque:#1A9FB0;
+  --viz-online:#EDA100;
+
+  /* Headline tiles: solid colour under white text, each at 4:1 or better. */
+  --tile-blue:#2472B8;
+  --tile-green:#1F8A52;
+  --tile-rose:#CC2F66;
+  --tile-teal:#14879A;
+}
+.sr-only{
+  position:absolute;width:1px;height:1px;margin:-1px;padding:0;
+  overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;
+}
+
+.dash-head{align-items:flex-end;margin-bottom:14px;}
+.dash-controls{
+  display:flex;justify-content:space-between;align-items:center;
+  gap:10px 16px;flex-wrap:wrap;margin:0 0 16px;
+}
+.dash-controls .reg-tabs{margin:0;}
+/* The custom range: two month fields and Apply, on one line. */
+.dash-custom{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0;}
+.dash-custom label{font-size:.8125rem;font-weight:500;color:var(--ink-2);}
+.dash-custom input[type=month]{
+  width:auto;min-height:32px;padding:4px 9px;
+  font-family:var(--f-ui);font-size:.8125rem;color:var(--ink);
+  border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface);
+}
+.dash-custom.current input[type=month]{border-color:var(--brand);}
+.panel-more{margin:10px 0 0;font-size:.75rem;color:var(--ink-3);}
+
+.icon{
+  display:block;width:100%;height:100%;
+  fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;
+}
+
+/* -- Headline tiles: the four figures the page leads with, each a block of solid colour -- */
+.hero-grid{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;
+  margin:0 0 14px;
+}
+.hero{
+  display:flex;flex-direction:column;min-width:0;
+  background:var(--tile);color:#FFFFFF;
+  border-radius:var(--r-lg);
+  box-shadow:var(--sh-2);
+  overflow:hidden;
+}
+.hero-blue{--tile:var(--tile-blue);}
+.hero-green{--tile:var(--tile-green);}
+.hero-rose{--tile:var(--tile-rose);}
+.hero-teal{--tile:var(--tile-teal);}
+.hero-main{display:flex;align-items:center;gap:14px;padding:16px 18px 14px;flex:1;}
+.hero-icon{
+  flex:none;width:44px;height:44px;padding:9px;
+  border-radius:var(--r);
+  background:rgba(255,255,255,.18);
+  border:1px solid rgba(255,255,255,.28);
+}
+.hero-text{display:flex;flex-direction:column;min-width:0;}
+.hero-label{font-size:.8125rem;font-weight:500;color:rgba(255,255,255,.88);}
+/* Proportional figures: tabular digits look loose at this size. */
+.hero-value{
+  font-size:1.625rem;font-weight:700;line-height:1.2;letter-spacing:-.022em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.hero-foot{
+  padding:7px 18px 8px;
+  background:rgba(0,0,0,.16);
+  font-size:.75rem;font-weight:500;color:rgba(255,255,255,.94);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+
+/* -- Count tiles: a figure, where it leads, and an icon to find it by -- */
+.stat-grid{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;
+  margin:0 0 18px;
+}
+.stat{
+  display:flex;justify-content:space-between;align-items:flex-start;gap:12px;min-width:0;
+  padding:14px 16px 13px;
+  background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--r-lg);
+  box-shadow:var(--sh-1);
+}
+.stat-body{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.stat-label{font-size:.75rem;font-weight:500;color:var(--ink-2);}
+.stat-value{
+  font-size:1.375rem;font-weight:600;line-height:1.3;letter-spacing:-.02em;color:var(--ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.stat-link,.stat-note{font-size:.75rem;line-height:1.4;color:var(--ink-3);}
+.stat-link{color:var(--brand);font-weight:500;}
+.stat-icon{
+  flex:none;width:34px;height:34px;padding:7px;
+  border-radius:var(--r);
+  background:var(--brand-tint);color:var(--brand);
+}
+.stat-attention{box-shadow:inset 3px 0 0 var(--accent),var(--sh-1);}
+.stat-attention .stat-icon{background:var(--accent-tint);color:var(--warn);}
+
+/* -- Panels -- */
+.dash-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:18px;}
+.dash-grid > .card{margin-top:0;min-width:0;}
+.dash-grid > .span-12{grid-column:span 12;}
+.dash-grid > .span-4{grid-column:span 4;}
+.dash-grid > .span-5{grid-column:span 5;}
+.dash-grid > .span-6{grid-column:span 6;}
+.dash-grid > .span-7{grid-column:span 7;}
+.dash-grid > .span-8{grid-column:span 8;}
+.panel-head{
+  display:flex;justify-content:space-between;align-items:flex-start;
+  gap:8px 16px;flex-wrap:wrap;margin:0 0 14px;
+}
+.dash-panel h3{
+  margin:0;padding:0;border:none;
+  font-size:.9375rem;font-weight:600;letter-spacing:-.008em;color:var(--ink);
+}
+.panel-sub{margin:2px 0 0;font-size:.8125rem;color:var(--ink-3);}
+.panel-link{font-size:.8125rem;font-weight:500;white-space:nowrap;}
+.dash-note{margin:18px 2px 0;max-width:100ch;font-size:.75rem;line-height:1.55;color:var(--ink-3);}
+.dash-note strong{font-weight:600;color:var(--ink-2);}
+
+/* -- Series colour: one custom property, read as a fill by marks and as a background by keys -- */
+.s-booked{--s:var(--viz-booked);}
+.s-collected{--s:var(--viz-collected);}
+.s-completed{--s:var(--viz-completed);}
+.s-confirmed{--s:var(--viz-confirmed);}
+.s-draft{--s:var(--viz-draft);}
+.s-cancelled{--s:var(--viz-cancelled);}
+.s-cash{--s:var(--viz-cash);}
+.s-bank-transfer{--s:var(--viz-bank);}
+.s-cheque{--s:var(--viz-cheque);}
+.s-online{--s:var(--viz-online);}
+.chart-mark,.rank-bar rect,.chart-dot{fill:var(--s,var(--ink-3));}
+.swatch,.tip-key{background:var(--s,transparent);}
+
+/* -- Area chart: a 2px line, a light wash under it, a ringed dot on every period -- */
+.chart-line{fill:none;stroke:var(--s,var(--ink-3));stroke-width:2;stroke-linejoin:round;stroke-linecap:round;}
+.chart-area{fill:var(--s,var(--ink-3));opacity:.11;}
+.chart-dot{stroke:var(--surface);stroke-width:2;}
+.chart.chart-wide{min-width:680px;}
+
+/* -- Donut and gauge -- */
+.donut-wrap,.gauge-wrap{display:flex;justify-content:center;margin:2px 0 14px;}
+.donut{display:block;width:180px;max-width:100%;height:auto;}
+.donut-track,.donut-seg,.gauge-track,.gauge-fill{fill:none;stroke-width:22;}
+.donut-track{stroke:var(--surface-3);}
+.donut-seg,.gauge-fill{stroke:var(--s,var(--ink-3));}
+.donut-centre{font-size:19px;font-weight:700;fill:var(--ink);letter-spacing:-.02em;}
+.donut-label{font-size:11px;fill:var(--ink-3);}
+.gauge{display:block;width:230px;max-width:100%;height:auto;}
+/* The unfilled part is a lighter step of the same colour, so the whole arch reads as one measure. */
+.gauge-track{stroke:var(--s,var(--ink-3));opacity:.18;}
+.gauge-value{font-size:30px;font-weight:700;fill:var(--ink);letter-spacing:-.02em;}
+.swatch-track{opacity:.28;}
+
+/* The figures beside a donut or gauge: nothing on the ring has to be hovered to be read. */
+.key-list{list-style:none;margin:0;padding:0;font-size:.8125rem;}
+.key-list li{
+  display:flex;align-items:center;gap:8px;
+  padding:7px 0;border-top:1px solid var(--line-2);
+}
+.key-name{flex:1;min-width:0;color:var(--ink-2);}
+.key-share{color:var(--ink-3);font-variant-numeric:tabular-nums;}
+.key-value{min-width:96px;text-align:right;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.key-total .key-name{color:var(--ink);font-weight:500;}
+
+/* -- Latest payments -- */
+.feed{list-style:none;margin:0;padding:0;}
+.feed li{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 0;border-top:1px solid var(--line-2);
+}
+.feed li:first-child{border-top:none;padding-top:2px;}
+.feed-dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--viz-collected);}
+.feed-dot.refund{background:var(--danger);}
+.feed-dot.neutral{background:var(--line-strong);}
+.feed-body{flex:1;min-width:0;}
+.feed-title{font-size:.875rem;font-weight:500;color:var(--ink);}
+.feed-meta{font-size:.75rem;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.feed-open{flex:none;}
+
+.chart-legend{
+  list-style:none;margin:2px 0 0;padding:0;
+  display:flex;flex-wrap:wrap;gap:4px 14px;
+  font-size:.75rem;color:var(--ink-2);
+}
+.chart-legend li{display:inline-flex;align-items:center;gap:6px;}
+.swatch{width:10px;height:10px;border-radius:2px;flex:none;}
+
+/* -- Column charts. Below the width where the labels would crowd, the chart scrolls sideways
+      rather than shrinking its type past reading size. -- */
+.chart-scroll{overflow-x:auto;}
+.chart{display:block;width:100%;min-width:540px;height:auto;}
+.chart-grid{stroke:var(--line-2);stroke-width:1;}
+.chart-axis{stroke:var(--line-strong);stroke-width:1;}
+.chart-tick{font-size:11px;fill:var(--ink-3);font-variant-numeric:tabular-nums;}
+.chart-xlabel{font-size:11px;fill:var(--ink-2);}
+.chart-xsub{fill:var(--ink-3);}
+.chart-hit{fill:transparent;}
+.chart-hit:hover,.chart-hit:focus{fill:rgba(20,26,24,.06);}
+.chart-hit:focus{outline:none;}
+.chart-hit:focus-visible{stroke:var(--brand);stroke-width:1.5;}
+.chart-empty{margin:0;padding:34px 12px;text-align:center;font-size:.875rem;color:var(--ink-3);}
+
+.chart-table{margin:10px 0 0;}
+.chart-table summary{
+  display:inline-block;cursor:pointer;
+  font-size:.8125rem;font-weight:500;color:var(--brand);
+}
+.chart-table summary:hover{text-decoration:underline;text-underline-offset:2px;}
+.chart-table .table-scroll{margin-top:10px;border:1px solid var(--line-2);border-radius:var(--r);}
+.chart-table table.registry tbody td{padding:8px 14px;}
+
+.chart-tip{
+  position:fixed;z-index:60;left:0;top:0;
+  min-width:168px;max-width:280px;padding:9px 12px 10px;
+  background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--sh-2);
+  font-size:.8125rem;line-height:1.45;
+  pointer-events:none;
+}
+.tip-title{margin:0 0 5px;font-size:.75rem;font-weight:600;color:var(--ink-2);}
+.tip-row{display:flex;align-items:center;gap:8px;}
+.tip-key{width:10px;height:3px;border-radius:2px;flex:none;}
+.tip-name{flex:1;color:var(--ink-2);white-space:nowrap;}
+.tip-value{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap;padding-left:10px;}
+
+/* -- Ranked tables: the name, a bar, the figure the bar shows, a second figure for context -- */
+.rank-table{width:100%;border-collapse:collapse;}
+.rank-table th,.rank-table td{padding:9px 6px;border-bottom:1px solid var(--line-2);vertical-align:middle;}
+.rank-table th:first-child{padding-left:0;}
+.rank-table td:last-child,.rank-table thead th:last-child{padding-right:0;}
+.rank-table tbody tr:last-child th,.rank-table tbody tr:last-child td{border-bottom:none;}
+.rank-table thead th{
+  padding-top:0;padding-bottom:7px;
+  text-align:left;font-size:.6875rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--ink-3);border-bottom-color:var(--line);white-space:nowrap;
+}
+.rank-table thead th.num{text-align:right;}
+.rank-table tbody th{
+  text-align:left;font-size:.875rem;font-weight:500;color:var(--ink);
+  overflow-wrap:break-word;
+}
+.rank-table .rank-bar-col{width:34%;min-width:56px;}
+.rank-table td.num{white-space:nowrap;}
+.rank-bar{display:block;}
+.rank-main{font-size:.875rem;font-weight:600;color:var(--ink);}
+.rank-side{font-size:.8125rem;color:var(--ink-3);}
+
+/* -- Action lists -- */
+.dash-list tbody td{padding:10px 12px;}
+.dash-list thead th{padding:9px 12px;}
+.dash-list .owing{font-weight:600;color:var(--danger);}
+.dash-list .due-chip{margin-left:0;}
+
+/* ======================================================================
+   20. Responsive
    ====================================================================== */
 @media (max-width:1000px){
   .appbar-inner{flex-wrap:wrap;min-height:0;padding:0 16px;}
@@ -1455,6 +1859,8 @@ body.dialog-open{overflow:hidden;}
   .wizard-steps li:has(.step.current){flex:1 1 auto;min-width:0;}
   .step-body{display:none;}
   .step.current .step-body{display:flex;}
+  .hero-grid,.stat-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .dash-grid > .card{grid-column:1 / -1;}
 }
 @media (max-width:760px){
   :root{--gutter:16px;}
@@ -1468,6 +1874,13 @@ body.dialog-open{overflow:hidden;}
   table.totals-table{min-width:0;width:100%;margin-left:0;}
   .watermark{font-size:3.2rem;}
   .page-head h2{font-size:1.1875rem;}
+  .hero-grid,.stat-grid{gap:10px;}
+  .hero-main{gap:10px;padding:13px 13px 11px;}
+  .hero-icon{width:36px;height:36px;padding:7px;}
+  .hero-value{font-size:1.25rem;}
+  .hero-foot{padding:6px 13px 7px;}
+  .stat-icon{display:none;}
+  .dash-head{align-items:flex-start;}
   .who-name{max-width:110px;}
   .actionbar{gap:7px;}
   .actionbar .btn{flex:1 1 auto;}
@@ -1503,7 +1916,7 @@ body.dialog-open{overflow:hidden;}
 }
 
 /* ======================================================================
-   20. Print — the letterhead returns, the application disappears
+   21. Print — the letterhead returns, the application disappears
    ====================================================================== */
 @media print{
   :root{
@@ -1542,7 +1955,7 @@ body.dialog-open{overflow:hidden;}
   .appbar,.doc-toolbar,.actionbar,.list-toolbar,.pager,
   .flash,.errors,.readonly-note,.hint,
   .card.lifecycle,.amend-panel,.void-form,.payment-form,
-  .card.attachments,.login-overlay,.page-head .btn,.btn{display:none!important;}
+  .card.attachments,.login-overlay,.page-head .btn,.btn,.no-print{display:none!important;}
 
   main{padding:0;max-width:none;}
   .card{border:none;box-shadow:none;border-radius:0;overflow:visible;}
@@ -1564,6 +1977,7 @@ body.dialog-open{overflow:hidden;}
   /* The date/time pickers are controls, not content. */
   input::-webkit-calendar-picker-indicator{display:none;}
   select{background-image:none;padding-right:0;}
+  select::picker-icon{display:none;}
   /* A readout prints as the value it is, on the same rule as the fields around it. */
   .readout{
     display:block;border:none;border-bottom:1px solid #999;border-radius:0;
@@ -1592,6 +2006,17 @@ body.dialog-open{overflow:hidden;}
   .block-num,.block-count,.block-chevron{display:none!important;}
   .block-toggle{display:block;padding:0;}
   .reg-summary,.reg-tabs,.due-chip{display:none!important;}
+  /* The dashboard prints as a report: figures and charts, none of the screen controls. */
+  .chart-tip,.panel-link,.chart-table summary,.dash-controls{display:none!important;}
+  .hero{background:#fff;color:#000;border:1px solid #666;box-shadow:none;}
+  .hero-label,.hero-foot{color:#000;}
+  .hero-foot{background:#fff;border-top:1px solid #ccc;}
+  .hero-icon,.stat-icon,.stat-link,.feed-open{display:none!important;}
+  .stat{border:1px solid #999;box-shadow:none;}
+  .dash-panel{break-inside:avoid;border:1px solid #ccc!important;padding:10px!important;}
+  .chart-mark,.rank-bar rect,.chart-line,.chart-area,.chart-dot,.donut-seg,.gauge-fill,.gauge-track,.swatch{
+    -webkit-print-color-adjust:exact;print-color-adjust:exact;
+  }
   .reg-row > td:first-child{box-shadow:none!important;}
 
   table.registry thead th,
@@ -1611,4 +2036,140 @@ body.dialog-open{overflow:hidden;}
   table.doc-table tr{break-inside:avoid;}
   .doc-block,.doc-parties,.doc-signs{break-inside:avoid;}
   a{text-decoration:none;color:#000;}
+}
+
+/* ======================================================================
+   22. Print page setup, and the one-page documents
+   ====================================================================== */
+/* The paper margin is drawn by the page itself (padding on the wrapper's cells, and a spacer in
+   its repeating header and footer), not by @page. A print dialog set to "Margins: None" throws
+   @page margins away and ran the text off both edges of the sheet. */
+@page{size:A4 portrait;margin:0;}
+.page-table > tfoot{display:none;}
+@media print{
+  html,body{width:auto;margin:0;}
+  /* Fixed layout keeps the wrapper at the paper's width, whatever is inside it. */
+  .page-table{width:100%;table-layout:fixed;}
+  .page-table > tfoot{display:table-footer-group;}
+  .page-table > tfoot > tr{display:table-row;}
+  .page-table > thead > tr > td,.page-table > tbody > tr > td,.page-table > tfoot > tr > td{
+    display:table-cell;width:100%;padding:0 12mm;border:none;overflow:hidden;
+  }
+  .page-table > thead > tr > td{padding-top:8mm;}
+  .page-table > tfoot > tr > td{height:8mm;}
+  .doc{width:100%;max-width:100%;overflow:visible;}
+  table.doc-table th,table.doc-table td{overflow-wrap:break-word;}
+  /* A4 is narrower than the phone breakpoint, so the small-screen stacking would reach paper. */
+  .doc-parties,.inv-parties{grid-template-columns:1fr 1fr;}
+  .watermark{font-size:5rem;}
+
+  /* ---- Agreement, invoice and operations sheet: one A4 sheet each ---- */
+  /* The letterhead cell has a fixed height so the sheet below it has a known one: A4 less the
+     letterhead, the bottom margin and a millimetre of slack. The sheet is enlarged by --z (set
+     per agreement) and its tables take up the rest, so the page is filled top to bottom. */
+  .doc-sheet-page .page-table > thead > tr > td{height:28mm;vertical-align:top;}
+  .doc-sheet-page .doc{
+    zoom:var(--z,1);
+    display:flex;flex-direction:column;
+    min-height:calc((100vh - 39mm) / var(--z,1));
+  }
+  .doc-sheet-page .doc > *{flex:0 0 auto;}
+  .doc-sheet-page .doc > .doc-block{display:flex;flex-direction:column;flex-basis:auto;}
+  .doc-sheet-page .doc-block > *{flex:0 0 auto;}
+  .doc-sheet-page .doc-block > table.doc-table,
+  .doc-sheet-page .doc > table.doc-table{flex:1 0 auto;}
+  .doc-sheet-page .doc > table.doc-received,
+  .doc-sheet-page .doc > table.doc-table.compact{flex-grow:0;}
+  .doc-sheet-page table.doc-table th,
+  .doc-sheet-page table.doc-table td{vertical-align:middle;}
+  body.doc-sheet-page{font-size:8pt;}
+  .doc-sheet-page .letterhead{padding-bottom:4px;border-bottom-width:1.5px;}
+  .doc-sheet-page .letterhead-logo{height:32px;}
+  .doc-sheet-page .letterhead-meta{line-height:1.25;}
+  .doc-sheet-page .letterhead-line1{font-size:8.5pt;}
+  .doc-sheet-page .letterhead-line2{font-size:7.5pt;margin-top:1px;}
+  .doc-sheet-page .letterhead-rule{padding:3px 0 4px;}
+  .doc-sheet-page .letterhead-title{font-size:8pt;}
+  .doc-sheet-page .schedule-tag{font-size:7pt;padding:1px 6px;}
+
+  .doc-sheet-page .doc{font-size:8pt;line-height:1.22;color:#000;}
+  .doc-sheet-page .doc-head{
+    display:block;border-bottom:1.5px solid #000;padding-bottom:4px;margin-bottom:5px;
+  }
+  .doc-sheet-page .doc-head h2{font-size:13pt;line-height:1.2;text-align:center;margin:0 0 4px;}
+  .doc-sheet-page .doc-meta{
+    display:flex;flex-wrap:wrap;justify-content:space-between;gap:1px 16px;
+    text-align:left;font-size:8pt;color:#000;
+  }
+  .doc-sheet-page .doc-meta div{margin:0;gap:5px;white-space:nowrap;justify-content:flex-start;}
+  .doc-sheet-page .doc-meta span{color:#444;}
+  .doc-sheet-page .doc-amend{
+    border:1px solid #666;border-radius:0;color:#000;
+    padding:3px 7px;font-size:8pt;margin:0 0 6px;
+  }
+  .doc-sheet-page .doc-intro{font-size:8pt;margin:0 0 4px;}
+
+  .doc-sheet-page .doc-parties{gap:10px;margin-bottom:6px;align-items:stretch;}
+  .doc-sheet-page .doc-box{padding:4px 8px;border:1px solid #666;border-radius:0;}
+  .doc-sheet-page .doc-box h4{font-size:7pt;margin:0 0 2px;color:#444;}
+  .doc-sheet-page .doc-box p{font-size:8pt;margin:0;}
+
+  .doc-sheet-page .doc-block{margin-bottom:3px;break-inside:auto;}
+  .doc-sheet-page .doc-block h3{
+    font-size:7.5pt;color:#000;margin:0 0 3px;padding-bottom:2px;border-bottom:1px solid #000;
+  }
+  .doc-sheet-page .doc-sub{font-size:7pt;color:#444;margin:4px 0 2px;}
+  .doc-sheet-page .doc-block p{margin:2px 0;}
+
+  .doc-sheet-page table.doc-table{table-layout:fixed;font-size:8pt;margin-bottom:0;}
+  .doc-sheet-page table.doc-table th,
+  .doc-sheet-page table.doc-table td{padding:1.5px 6px;border-color:#666;}
+  .doc-sheet-page table.doc-table.kv th{width:17%;font-size:7pt;color:#000;}
+  .doc-sheet-page table.doc-table.kv td{width:33%;}
+  .doc-sheet-page table.doc-table.doc-items td{width:83%;}
+  .doc-sheet-page table.doc-table.money th.num,
+  .doc-sheet-page table.doc-table.money td.num{width:26%;text-align:right;}
+  .doc-sheet-page table.doc-table.money thead th{font-size:7.5pt;border-bottom:1px solid #000;}
+  .doc-sheet-page .doc-words{font-size:8pt;margin:2px 0 0;}
+
+  .doc-sheet-page .doc-list{font-size:8pt;margin:0 0 2px;padding-left:16px;}
+  .doc-sheet-page .doc-policy,
+  .doc-sheet-page .doc-note{font-size:7.5pt;color:#000;margin:2px 0;}
+  .doc-sheet-page .doc-review{font-size:7pt;color:#444;margin:3px 0 0;}
+
+  .doc-sheet-page .doc-signs{margin-top:6px;gap:40px;flex-wrap:nowrap;}
+  .doc-sheet-page .doc-signs > div{min-width:0;}
+  .doc-sheet-page .sign-line{min-height:20px;padding:4px 2px 2px;font-size:8pt;border-bottom:1px solid #000;}
+  .doc-sheet-page .doc-signs span{font-size:7pt;color:#000;margin-top:1px;}
+
+  /* Invoice and operations sheet pieces. */
+  .doc-sheet-page .doc > table.doc-table{margin-bottom:3px;}
+  .doc-sheet-page table.doc-table.ops th.sn,.doc-sheet-page table.doc-table.ops td.sn{width:10%;text-align:center;white-space:nowrap;}
+  .doc-sheet-page table.doc-table.ops th.num,.doc-sheet-page table.doc-table.ops td.num{width:10%;}
+  .doc-sheet-page table.doc-table.ops th.tick,.doc-sheet-page table.doc-table.ops td.tick{width:9%;}
+  .doc-sheet-page table.doc-table.ops th:nth-child(2){width:38%;}
+  .doc-sheet-page table.doc-table.ops thead th{
+    font-family:var(--f-ui);font-size:7.5pt;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid #000;
+  }
+  .doc-sheet-page table.doc-table.compact{width:50%;min-width:0;margin-left:auto;}
+  .doc-sheet-page table.doc-table.compact td{width:55%;}
+  .doc-sheet-page table.doc-table.compact td.num{width:45%;}
+  /* An invoice's description box is tall when there is little to bill; its text stays at the top. */
+  .doc-sheet-page .doc > table.doc-table.money tbody td{vertical-align:top;padding-top:4px;}
+  .doc-sheet-page .doc-text{font-size:8pt;margin:1px 0;}
+  .doc-sheet-page .doc-balance{
+    font-size:10pt;color:#000;border-top:1.5px solid #000;padding-top:4px;margin:5px 0 0;
+  }
+  .doc-sheet-page .doc-footer{
+    font-size:7pt;color:#444;margin:8px 0 0;padding-top:4px;border-top:1px solid #999;
+  }
+
+  .doc-sheet-page .doc > table.doc-received{margin-top:5px;margin-bottom:0;}
+  .doc-sheet-page table.doc-received th{width:auto;}
+  .doc-sheet-page table.doc-received th:nth-child(1){width:25%;}
+  .doc-sheet-page table.doc-received td:nth-child(2){width:27%;}
+  .doc-sheet-page table.doc-received th:nth-child(3),
+  .doc-sheet-page table.doc-received th:nth-child(5){width:8%;}
+  .doc-sheet-page table.doc-received td:nth-child(4),
+  .doc-sheet-page table.doc-received td:nth-child(6){width:16%;}
 }

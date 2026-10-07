@@ -42,7 +42,7 @@ Then open **phpMyAdmin** for that database and import, in this order:
 1. `database/schema.sql`
 2. `database/seed.sql`
 
-After importing, the database has 11 tables and one admin account. `schema.sql` already contains
+After importing, the database has 23 tables and one admin account. `schema.sql` already contains
 every migration, so a **new** install does not import anything from `database/migrations/`.
 
 Upgrading an existing site is different — see "Applying a schema change later" below. After any
@@ -73,6 +73,11 @@ Notes:
 - `storage/uploads`, `storage/logs` and `storage/sessions` must exist and be writable (permission 755 is enough
   on Hostinger; the web server runs as your own user).
 
+**Installing in a sub-folder (e.g. `https://applesoft.biz/event`):** upload the whole project, `.htaccess`
+at its root included, into `public_html/event/`. That `.htaccess` passes every request to `public/`, so
+`app/`, `config/`, `database/` and `storage/` are never reachable. In `config.php` set `'BASE_URL' => '/event'`
+and `'ALLOW_APP_IN_WEBROOT' => true`.
+
 ---
 
 ## 5. Write config.php
@@ -89,7 +94,7 @@ Copy `config/config.sample.php` to `config/config.php` and fill it in:
 'DB_USER'              => 'u123456_aomess',
 'DB_PASS'              => '…the password you noted…',
 'DEVICE_COOKIE_SECRET' => '…64 random characters…',
-'ORG_NAME'             => 'AO Mess / ASK Organizers',
+'ORG_NAME'             => 'Booking Organizer / ASK Organizers',
 'ORG_ADDRESS'          => '…office address for the letterhead…',
 'ORG_PHONE'            => '…',
 'ORG_EMAIL'            => '…',
@@ -132,49 +137,22 @@ Then work through `docs/GO_LIVE_CHECKLIST.md`, which covers what that page canno
 
 As the admin:
 
-- **Venues** — add or rename the venues so they match AO Mess (a venue that has been used by a booking
+- **Venues** — add or rename the venues so they match Booking Organizer (a venue that has been used by a booking
   can only be deactivated, so get the names right before the first booking).
 - **Catalog** — set the default rates for the charges, and add or retire items.
-- **Vendors** — ask each vendor to register from the sign-in page, then approve them.
+- **Menus** — the dishes and menu packages. Booking Organizer's own menus (typed in from the menu cards in
+  `menu/`) are in `database/menu_data.sql`: import it in phpMyAdmin, then upload the card images from every
+  `menu/` subfolder into `storage/uploads/` (each package names its card by file name). A new client skips both
+  and builds their menus on the Menus page. Standard and Premium menus have no price on their cards: set the
+  rate on the Menus page before they are booked.
+- **Users** — ask each user to register from the sign-in page, then approve them.
 
 ---
-
-## Installing in a sub-folder (e.g. `https://alfirdusi.com.pk/event`)
-
-Use this instead of step 4 when the app shares a domain with another site and lives under a path.
-Everything ends up inside `public_html`, so the app runs with `ALLOW_APP_IN_WEBROOT` on, and the
-folder's own `.htaccess` sends every request to `public/`.
-
-1. In File Manager, create `public_html/event/`.
-2. Upload into it `app/`, `config/`, `database/`, `public/` and `storage/`, **as folders** (not the
-   contents of `public/` this time), including their hidden `.htaccess` / `.user.ini` files:
-
-   ```
-   public_html/event/
-     .htaccess       <- from deploy/event/.htaccess
-     app/  config/  database/  public/  storage/
-   ```
-3. Upload `deploy/event/.htaccess` into `public_html/event/`.
-4. Edit `public_html/event/public/.htaccess` and change the last line to
-   `ErrorDocument 404 /event/index.php` (otherwise missing pages fall through to the main site).
-5. In `config/config.php` (step 5) use:
-
-   ```php
-   'APP_ENV'              => 'production',
-   'BASE_URL'             => '/event',
-   'CANONICAL_HOST'       => 'alfirdusi.com.pk',   // or 'www.alfirdusi.com.pk' if the site uses www
-   'ALLOW_APP_IN_WEBROOT' => true,
-   'DB_PORT'              => 3306,
-   ```
-6. Carry on with steps 6–8. Then confirm these return **403 or 404**, never file contents:
-   `/event/config/config.php`, `/event/app/bootstrap.php`, `/event/database/schema.sql`,
-   `/event/storage/logs/`. On **Checks**, the "App code above the web root" and the two
-   "web root" `.htaccess` / `.user.ini` lines show WARN in this layout; that is expected.
 
 ## Backups
 
 - **Automatic:** hPanel → Files → Backups. Hostinger keeps regular backups; check the schedule matches
-  what AO Mess expects.
+  what Booking Organizer expects.
 - **Before any change to the database:** phpMyAdmin → the database → Export → Quick → Go, and keep the
   `.sql` file. Do this before every migration, without exception.
 - **Files:** the attachments in `storage/uploads/` are not in the database. Include them in any manual
@@ -194,7 +172,7 @@ folder's own `.htaccess` sends every request to `public/`.
 Migration `002_venue_location.sql` adds `venues.location` and `bookings.venue_location`. Until it is
 imported, every page that touches a venue will fail, so import it before uploading the PHP files.
 
-Migration `003_venue_slots.sql` adds event slots: the `venue_slots` table (seeded with Morning
+Migration `016_venue_slots.sql` adds event slots: the `venue_slots` table (seeded with Morning
 12:00–3:00 PM, Afternoon 4:00–7:00 PM and Evening 8:00 PM–12:00 AM for every existing venue) and the
 slot columns on `bookings`, including the unique key that stops one venue slot being booked twice on
 one date. Import it before uploading the PHP files. Existing bookings are left as they were (no slot,

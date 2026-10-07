@@ -32,15 +32,14 @@ pay() { csrf "$1" "/booking/form.php?id=$2"
 HASH=$($PHP -r 'echo password_hash("Passw0rd-e2e", PASSWORD_DEFAULT);')
 $MYSQL -e "UPDATE users SET password_hash='$HASH', must_change_password=0 WHERE username='admin';
   INSERT INTO users (username,password_hash,role,name,firm_name,rep_name,contact,status) VALUES
-  ('uzair','$HASH','vendor','Uzair Khan','Uzair Caterers','Uzair Khan','0312-2159834','active');"
-VENDOR_ID=$($MYSQL -e "SELECT id FROM users WHERE username='uzair'")
+  ('uzair','$HASH','user','Uzair Khan','Uzair Caterers','Uzair Khan','0312-2159834','active');"
+USER_ID=$($MYSQL -e "SELECT id FROM users WHERE username='uzair'")
 LAWN_A=$($MYSQL -e "SELECT id FROM venues WHERE name='Lawn A'")
 SLOT_A=$($MYSQL -e "SELECT id FROM venue_slots WHERE venue_id=$LAWN_A AND name='Morning'")
 login v uzair Passw0rd-e2e
 login a admin Passw0rd-e2e
 csrf a /booking/form.php
-req a POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=Payment Client" "event_date=2027-12-12" "venue_id=$LAWN_A" "slot_id=$SLOT_A" \
-  "guests=100" "per_head_rate=1000" "vendor_id=$VENDOR_ID" "refund_pct_30=50"
+req a POST /booking/save.php "_csrf=$TOKEN" "id=" "version=" "client_name=Payment Client" "event_date=2027-12-12" "venue_id=$LAWN_A" "slot_id=$SLOT_A"   "guests=100" "per_head_rate=1000" "user_id=$USER_ID" "refund_pct_30=50"
 ID=${LOC##*=}
 csrf a "/booking/form.php?id=$ID"
 req a POST /booking/confirm.php "_csrf=$TOKEN" "id=$ID" "version=$($MYSQL -e "SELECT version FROM bookings WHERE id=$ID")"
@@ -80,13 +79,13 @@ req a GET "/booking/form.php?id=$ID"; contains "Overpaid by" "overpaid label"; c
 contains "Refunds are recorded only after a booking is cancelled." "no refund on a confirmed booking"
 req a GET /booking/list.php; contains "Rs. -5,000" "registry shows the negative balance"
 
-echo "== Vendor view"
-req v GET "/booking/form.php?id=$ID"; lacks "PAYMENTS &amp; REFUNDS" "vendor does not see the payments section"
-lacks "Record a payment" "vendor has no payment form"; lacks 'name="payment_id"' "vendor has no void buttons"
+echo "== User view"
+req v GET "/booking/form.php?id=$ID"; contains "PAYMENTS &amp; REFUNDS" "user sees the payments list"
+lacks "Record a payment" "user has no payment form"; lacks 'name="payment_id"' "user has no void buttons"
 csrf v "/booking/form.php?id=$ID"
 req v POST /payments/add.php "_csrf=$TOKEN" "form_token=x" "booking_id=$ID" "kind=payment" "amount=1" "paid_on=$TODAY" "method=cash"
-expect "$CODE" "404" "vendor POST to record a payment: 404"
-req v POST /payments/void.php "_csrf=$TOKEN" "booking_id=$ID" "payment_id=$FIRST" "reason=x"; expect "$CODE" "404" "vendor POST to void: 404"
+expect "$CODE" "404" "user POST to record a payment: 404"
+req v POST /payments/void.php "_csrf=$TOKEN" "booking_id=$ID" "payment_id=$FIRST" "reason=x"; expect "$CODE" "404" "user POST to void: 404"
 
 echo "== Refunds on a cancelled booking"
 csrf a "/booking/form.php?id=$ID"

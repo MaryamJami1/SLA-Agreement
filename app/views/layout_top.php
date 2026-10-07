@@ -2,7 +2,7 @@
 /**
  * Page header. Set before including:
  *   $pageTitle  string  shown in the browser tab
- *   $activeTab  string  optional: which nav tab is highlighted ('home', 'vendors', …)
+ *   $activeTab  string  optional: which nav tab is highlighted ('home', 'users', …)
  *   $bare       bool    optional: sign-in style page (centred card, no app bar)
  *
  * The page is wrapped in a single-row table with the letterhead in <thead>, so the letterhead
@@ -11,7 +11,7 @@
  */
 declare(strict_types=1);
 
-$pageTitle = $pageTitle ?? 'AO Mess';
+$pageTitle = $pageTitle ?? 'Booking Organizer';
 $activeTab = $activeTab ?? '';
 $bare = $bare ?? false;
 $bodyClass = $bodyClass ?? '';
@@ -26,19 +26,24 @@ $approvalCount = 0;
 
 $tabs = [];
 if ($viewer !== null && (int) $viewer['must_change_password'] !== 1) {
+    if ($viewer['role'] === 'admin') {
+        $tabs['dashboard'] = ['admin/dashboard.php', 'Dashboard'];
+    }
     $tabs['registry'] = ['booking/list.php', 'Registry'];
     $tabs['calendar'] = ['booking/calendar.php', 'Calendar'];
     $tabs['new'] = ['booking/form.php', 'New Booking'];
     if ($viewer['role'] === 'admin') {
         $tabs['approvals'] = ['admin/approvals.php', 'Approvals'];
-        $tabs['vendors'] = ['admin/vendors.php', 'Vendors'];
-        $tabs['catalog'] = ['admin/catalog.php', 'Catalog'];
+        $tabs['users'] = ['admin/users.php', 'Users'];
+        $tabs['catalog'] = ['admin/catalog.php', 'Store'];
+        $tabs['menus'] = ['admin/menus.php', 'Menus'];
         $tabs['venues'] = ['admin/venues.php', 'Venues'];
+        $tabs['vendors'] = ['admin/vendors.php', 'Vendors'];
         $tabs['slots'] = ['admin/slots.php', 'Event Slots'];
         $tabs['preflight'] = ['admin/preflight.php', 'Checks'];
         try {
             $approvalCount = (int) db()->query(
-                "SELECT (SELECT COUNT(*) FROM users WHERE role = 'vendor' AND status = 'pending')
+                "SELECT (SELECT COUNT(*) FROM users WHERE role = 'user' AND status = 'pending')
                       + (SELECT COUNT(*) FROM bookings WHERE status = 'draft')")->fetchColumn();
         } catch (Throwable $e) {
             // A header must never take the page down; the Approvals page itself will report the fault.
@@ -57,19 +62,35 @@ if ($viewer !== null) {
     }
     $initials = $initials !== '' ? $initials : 'U';
 }
+// A changed stylesheet or script gets a new URL, so a browser never prints with a stale cached copy.
+// The file is looked for where the project keeps it, then under the web root: which of the two holds
+// it depends on how the site was uploaded, and a miss here means every visitor keeps the old copy.
+$assetVersion = static function (string $path): string {
+    $candidates = [
+        APP_ROOT . '/public/' . ltrim($path, '/'),
+        rtrim((string) ($_SERVER['DOCUMENT_ROOT'] ?? ''), '/\\') . url($path),
+    ];
+    foreach ($candidates as $file) {
+        $time = is_file($file) ? filemtime($file) : false;
+        if ($time) {
+            return '?v=' . $time;
+        }
+    }
+    return '';
+};
 ?><!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?= h($pageTitle) ?> — AO Mess</title>
+<title><?= h($pageTitle) ?> — Booking Organizer</title>
 <meta name="theme-color" content="#12332C">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
-<link rel="stylesheet" href="<?= h(url('assets/css/style.css')) ?>">
+<link rel="stylesheet" href="<?= h(url('assets/css/style.css') . $assetVersion('assets/css/style.css')) ?>">
 <link rel="icon" type="image/png" href="<?= h(url('assets/img/logo.png')) ?>">
-<script src="<?= h(url('assets/js/app.js')) ?>" defer></script>
+<script src="<?= h(url('assets/js/app.js') . $assetVersion('assets/js/app.js')) ?>" defer></script>
 </head>
 <body class="<?= h(trim(($bare ? 'bare ' : '') . ($bodyClass ?? ''))) ?>">
 <?php if ($bare): ?>
@@ -92,19 +113,19 @@ if ($viewer !== null) {
   </div>
 </div>
 <div class="letterhead-rule">
-  <span class="letterhead-title">AO Mess — Catering &amp; Decoration SLA Register</span>
+  <span class="letterhead-title">Booking Organizer — Catering &amp; Decoration SLA Register</span>
   <span class="schedule-tag">SCHEDULE&#8209;A</span>
 </div>
 </td></tr>
 </thead>
 <tbody>
 <tr><td>
-<header class="appbar">
+<header class="appbar<?= count($tabs) > 6 ? ' many-tabs' : '' ?>">
   <div class="appbar-inner">
-    <a class="brand" href="<?= h(url($viewer !== null ? 'booking/list.php' : 'index.php')) ?>">
+    <a class="brand" href="<?= h(url($viewer !== null ? home_path($viewer) : 'index.php')) ?>">
       <img src="<?= h(url('assets/img/logo.png')) ?>" alt="" class="brand-mark">
       <span class="brand-text">
-        <strong>AO&nbsp;Mess</strong>
+        <strong>Booking&nbsp;Organizer</strong>
         <span>SLA Register</span>
       </span>
     </a>
@@ -121,7 +142,7 @@ if ($viewer !== null) {
       <span class="avatar" aria-hidden="true"><?= h($initials) ?></span>
       <span class="who">
         <span class="who-name"><?= h($viewer['name']) ?></span>
-        <span class="role-tag"><?= $viewer['role'] === 'admin' ? 'Admin' : 'Vendor' ?></span>
+        <span class="role-tag"><?= $viewer['role'] === 'admin' ? 'Admin' : 'User' ?></span>
       </span>
 <?php if ((int) $viewer['must_change_password'] !== 1): ?>
       <a class="navlink" href="<?= h(url('auth/change_password.php')) ?>">Password</a>

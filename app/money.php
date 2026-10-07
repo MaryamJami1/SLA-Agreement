@@ -8,6 +8,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/menus.php'; // extra dishes are charges too (menu_extra_charge_lines)
+
 /** Largest value a DECIMAL(12,2) column holds: 9,99,99,99,999.99 rupees. */
 const MONEY_MAX_PAISA = 999999999999;
 
@@ -325,7 +327,7 @@ function recompute_booking_totals(PDO $pdo, int $bookingId): array
         throw new LogicException('recompute_booking_totals() must run inside the booking transaction.');
     }
 
-    $st = $pdo->prepare('SELECT status, per_head_rate, guests, discount FROM bookings WHERE id = ?');
+    $st = $pdo->prepare('SELECT status, per_head_rate, guests, discount, menu_selection FROM bookings WHERE id = ?');
     $st->execute([$bookingId]);
     $b = $st->fetch();
     if (!$b) {
@@ -333,7 +335,7 @@ function recompute_booking_totals(PDO $pdo, int $bookingId): array
     }
 
     $st = $pdo->prepare("SELECT id, unit_snapshot, is_selected, qty, rate, amount
-                           FROM booking_line_items WHERE booking_id = ? AND section = 'charge'");
+                           FROM booking_line_items WHERE booking_id = ?");
     $st->execute([$bookingId]);
     $lines = [];
     $storedAmounts = [];
@@ -354,6 +356,9 @@ function recompute_booking_totals(PDO $pdo, int $bookingId): array
         $payments[] = ['kind' => $row['kind'], 'amount' => decimal_to_paisa($row['amount']), 'voided' => $row['voided_at'] !== null];
     }
 
+    // Extra dishes on the menu are charges as well; they live in the booking's menu, not as line rows.
+    $lines += menu_extra_charge_lines($b['menu_selection']);
+
     $discount = decimal_to_paisa($b['discount']);
     $t = compute_totals(decimal_to_paisa($b['per_head_rate']), (int) $b['guests'], $discount, $lines, $payments, $b['status']);
     if ($errors = validate_totals($t, $discount)) {
@@ -363,7 +368,7 @@ function recompute_booking_totals(PDO $pdo, int $bookingId): array
 
     $upd = $pdo->prepare('UPDATE booking_line_items SET amount = ? WHERE id = ?');
     foreach ($t['line_amounts'] as $lineId => $amount) {
-        if ($storedAmounts[$lineId] !== $amount) {
+        if (is_int($lineId) && $storedAmounts[$lineId] !== $amount) {
             $upd->execute([paisa_to_decimal($amount), $lineId]);
         }
     }

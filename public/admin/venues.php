@@ -45,8 +45,8 @@ require APP_ROOT . '/app/views/layout_top.php';
 </div>
 <p class="muted">A venue used by any booking can't be renamed or deleted — bookings point at it, so its meaning must stay the
   same. Deactivate it instead and add the new name as a separate venue. Inactive venues aren't offered on new bookings.</p>
-<p class="muted">The <strong>location</strong> is where the venue sits inside AO Mess (for example “Ground floor, behind the
-  Hall”). It fills in automatically on the booking form and prints on the agreement, invoice and vendor sheet. Unlike the
+<p class="muted">The <strong>location</strong> is where the venue sits inside Booking Organizer (for example “Ground floor, behind the
+  Hall”). It fills in automatically on the booking form and prints on the agreement, invoice and user sheet. Unlike the
   name, it can be changed at any time: each booking stores its own copy, so past paperwork never changes.</p>
 <p class="muted">Each venue's bookable time slots (Morning, Evening…) are set on
   <a href="<?= h(url('admin/slots.php')) ?>">Event Slots</a>. A new venue has none until you add or copy them.</p>

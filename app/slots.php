@@ -119,7 +119,7 @@ function venue_slots(PDO $pdo, int $venueId, bool $activeOnly = true): array
  * (not cancelled) booking holds it on that date. A confirmed or completed booking from before slots
  * existed (no slot recorded) took the whole day, so it marks every slot booked.
  *
- * Only availability is returned — never who holds a slot — so this is safe to show vendors.
+ * Only availability is returned — never who holds a slot — so this is safe to show users.
  *
  * @return list<array{id: int, name: string, icon: ?string, start: string, end: string, time: string,
  *                    available: bool, own: bool, disabled: bool}>
@@ -164,7 +164,7 @@ function slot_availability(PDO $pdo, int $venueId, ?string $date, ?int $bookingI
 /**
  * Why this booking can't hold $slotId on $date, or null if it can. A LOCKING read, so it sees a booking
  * another transaction has just committed; call it after locking the venue row (lock_venues()).
- * Vendors aren't shown other vendors' SLA numbers.
+ * Users aren't shown other users' SLA numbers.
  */
 function slot_taken_message(PDO $pdo, ?int $bookingId, int $slotId, string $date, bool $isAdmin): ?string
 {
@@ -218,7 +218,7 @@ function parse_booking_slot(PDO $pdo, $raw, ?int $venueId, ?string $eventDate, ?
             return [$none, null];
         }
         return [$none, venue_slots($pdo, $venueId) === []
-            ? 'Event slot: this venue has no event slots set up yet, so it can\'t be booked. Choose another venue, or ask AO Mess to add its slots.'
+            ? 'Event slot: this venue has no event slots set up yet, so it can\'t be booked. Choose another venue, or ask Booking Organizer to add its slots.'
             : 'Event slot: choose one of the available slots for this venue and date.'];
     }
     $slotId = ctype_digit($raw) ? (int) $raw : 0;

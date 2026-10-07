@@ -14,7 +14,7 @@ $version = ctype_digit((string) ($_POST['version'] ?? '')) ? (int) $_POST['versi
 
 $booking = null;
 if ($id !== null) {
-    // Vendors: own drafts only. Admin: drafts, and confirmed bookings (direct edits / amendments).
+    // Users: own drafts only. Admin: drafts, and confirmed bookings (direct edits / amendments).
     $booking = load_booking_for_user($pdo, $id, $viewer, 'edit');
 }
 $confirmed = $booking !== null && $booking['status'] === 'confirmed';
@@ -53,36 +53,41 @@ $values = [];
 foreach (array_keys(booking_field_specs()) as $name) {
     $values[$name] = is_string($_POST[$name] ?? null) ? $_POST[$name] : '';
 }
-$values['vendor_id'] = is_string($_POST['vendor_id'] ?? null) ? $_POST['vendor_id'] : ($booking['vendor_id'] ?? '');
+$values['user_id'] = is_string($_POST['user_id'] ?? null) ? $_POST['user_id'] : ($booking['user_id'] ?? '');
 $values['venue_id'] = is_string($_POST['venue_id'] ?? null) && $_POST['venue_id'] !== 'other' ? $_POST['venue_id'] : '';
 $values['venue_other'] = ($_POST['venue_id'] ?? '') === 'other' ? (string) ($_POST['venue_other'] ?? '') : '';
 $values['slot_id'] = is_string($_POST['slot_id'] ?? null) ? $_POST['slot_id'] : '';
 $values['version'] = $version;
 $values['amend_reason'] = is_string($_POST['amend_reason'] ?? null) ? $_POST['amend_reason'] : '';
 $values['override_reason'] = is_string($_POST['override_reason'] ?? null) ? $_POST['override_reason'] : '';
-if ($viewer['role'] === 'vendor') {
+if ($viewer['role'] === 'user') {
     $values['firm_name'] = $viewer['firm_name'];
     $values['rep_name'] = $viewer['rep_name'];
     $values['rep_contact'] = $viewer['contact'];
+    // A user's form doesn't post the prices and terms; show the ones the booking actually has.
+    foreach (new_booking_admin_fields($pdo) as $name => $default) {
+        $values[$name] = (string) ($booking ? $booking[$name] : $default);
+    }
 }
 
 $postedLines = is_array($_POST['lines'] ?? null) ? $_POST['lines'] : [];
 $lineInput = [];
 foreach ($formLines as $key => $l) {
     $in = is_array($postedLines[$key] ?? null) ? $postedLines[$key] : [];
+    $postedRate = is_string($in['rate'] ?? null) ? $in['rate'] : '';
     $lineInput[$key] = [
         'selected' => isset($in['selected']),
-        // A vendor's rate box is read-only (not posted): show AO Mess's rate again.
-        'rate'     => $viewer['role'] === 'vendor' && $l['section'] === 'charge'
-            ? (string) ($l['rate'] ?? '')
-            : (is_string($in['rate'] ?? null) ? $in['rate'] : ''),
+        'rate'     => $viewer['role'] === 'user' ? (string) $l['rate'] : $postedRate,
         'qty'      => is_string($in['qty'] ?? null) ? $in['qty'] : '',
         'notes'    => is_string($in['notes'] ?? null) ? $in['notes'] : '',
     ];
 }
 
+// The menu as it was chosen on the form (the saved copy still shows from $booking).
+$menuInput = isset($_POST['menu_present']) ? menu_input_from_post($_POST) : menu_input_from_booking($booking);
+
 $ctx = ['values' => $values, 'errors' => $conflict ? [] : $errors, 'readonly' => false];
-$vendors = $viewer['role'] === 'admin' ? active_vendors($pdo) : [];
+$users = $viewer['role'] === 'admin' ? active_users($pdo) : [];
 $venues = venues_for_form($pdo, $booking && $booking['venue_id'] !== null ? (int) $booking['venue_id'] : null);
 $clashMessages = [];
 
