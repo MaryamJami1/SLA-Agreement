@@ -441,6 +441,146 @@
     form.addEventListener('change', recalc);
     if (field('event_date')) { field('event_date').addEventListener('change', syncDay); }
 
+    // ---- Event slots follow the date and venue -----------------------------------------------
+    // The server renders the slots for the date and venue the page opened with; this refreshes them
+    // from booking/slots.php whenever either changes. Slots come from the admin's configuration for
+    // that venue, so nothing about them is known here. Only availability comes back, never who holds
+    // a slot. The save re-checks the slot under a lock: this is guidance, not the guard.
+    var slotField = document.getElementById('slot-field');
+    var slotGrid = document.getElementById('slot-grid');
+    var slotMsg = document.getElementById('slot-message');
+    var slotRequest = 0;
+    var MSG_PICK = 'Choose the date of the event and a venue to see the available slots.';
+    var MSG_NONE_SET = 'No event slots are set up for this venue yet. Choose another venue.';
+    var MSG_ALL_BOOKED = 'No time slots available for this venue on the selected date. Please select another date or venue.';
+
+    function validDate(d) { return /^\d{4}-\d{2}-\d{2}$/.test(d || ''); }
+    function setSlotMessage(text, isError) {
+      if (!slotMsg) { return; }
+      slotMsg.textContent = text || '';
+      slotMsg.hidden = !text;
+      slotMsg.classList.toggle('is-error', !!isError);
+    }
+    function chosenSlot() {
+      var r = slotGrid && slotGrid.querySelector('input[name="slot_id"]:checked');
+      return r ? r.value : '';
+    }
+    function slotCard(s, chosen) {
+      var selectable = s.available || s.own;
+      var label = document.createElement('label');
+      label.className = 'slot-card' + (selectable ? '' : ' is-booked');
+      var input = document.createElement('input');
+      input.type = 'radio';
+      input.name = 'slot_id';
+      input.value = String(s.id);
+      input.disabled = !selectable;
+      input.checked = selectable && String(s.id) === chosen;
+      var icon = document.createElement('span');
+      icon.className = 'slot-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.textContent = s.icon || '';
+      var body = document.createElement('span');
+      body.className = 'slot-body';
+      var name = document.createElement('span');
+      name.className = 'slot-name';
+      name.textContent = s.name;             // textContent, never innerHTML: names are admin-entered
+      var time = document.createElement('span');
+      time.className = 'slot-time';
+      time.textContent = s.time;
+      body.appendChild(name);
+      body.appendChild(time);
+      var state = document.createElement('span');
+      state.className = 'slot-state';
+      state.textContent = s.own && s.disabled ? 'Your booking · no longer offered' : (selectable ? 'Available' : 'Booked');
+      label.appendChild(input);
+      label.appendChild(icon);
+      label.appendChild(body);
+      label.appendChild(state);
+      return label;
+    }
+    function renderSlots(slots, chosen) {
+      slotGrid.textContent = '';
+      slots.forEach(function (s) { slotGrid.appendChild(slotCard(s, chosen)); });
+      slotGrid.hidden = slots.length === 0;
+      var open = slots.filter(function (s) { return s.available || s.own; }).length;
+      if (!slots.length) {
+        setSlotMessage(MSG_NONE_SET);
+      } else if (!open) {
+        setSlotMessage(MSG_ALL_BOOKED);
+      } else if (chosen && !chosenSlot()) {
+        setSlotMessage('The slot you had chosen is not available on this date. Choose another slot.', true);
+      } else {
+        setSlotMessage('');
+      }
+      refreshSteps();
+    }
+    function refreshSlots() {
+      if (!slotField) { return; }
+      var venue = field('venue_id');
+      var v = venue ? venue.value : '';
+      var d = field('event_date') ? field('event_date').value : '';
+      var isOther = v === 'other';
+      slotField.classList.toggle('hidden', isOther);
+      var start = form.querySelector('.start-time-field');
+      if (start) { start.classList.toggle('hidden', !isOther); }
+      if (isOther) { return; }
+
+      var chosen = chosenSlot();
+      var context = document.getElementById('slot-context');
+      if (!/^\d+$/.test(v) || !validDate(d)) {
+        slotRequest++;                        // drop any answer still on its way
+        slotGrid.textContent = '';
+        slotGrid.hidden = true;
+        if (context) { context.textContent = ''; }
+        setSlotMessage(MSG_PICK);
+        refreshSteps();
+        return;
+      }
+      if (context) {
+        var parts = d.split('-');
+        context.textContent = venue.options[venue.selectedIndex].textContent.trim() + ' · ' +
+          new Date(+parts[0], +parts[1] - 1, +parts[2])
+            .toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+      }
+      var req = ++slotRequest;
+      slotField.classList.add('is-loading');
+      slotField.setAttribute('aria-busy', 'true');
+      var booking = slotField.getAttribute('data-booking');
+      var q = '?venue_id=' + encodeURIComponent(v) + '&date=' + encodeURIComponent(d) +
+        (booking ? '&booking=' + encodeURIComponent(booking) : '');
+      fetch(slotField.getAttribute('data-endpoint') + q, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+        .then(function (r) {
+          if (!r.ok) { throw new Error('HTTP ' + r.status); }
+          return r.json();
+        })
+        .then(function (data) {
+          if (req !== slotRequest) { return; }  // the user has moved on to another date or venue
+          renderSlots(data.slots || [], chosen);
+        })
+        .catch(function () {
+          if (req !== slotRequest) { return; }
+          setSlotMessage('Couldn’t load the slots for this venue. Check the connection and change the date or venue to try again.', true);
+        })
+        .then(function () {
+          if (req !== slotRequest) { return; }
+          slotField.classList.remove('is-loading');
+          slotField.removeAttribute('aria-busy');
+        });
+    }
+    // "Continue" from the Event step needs a slot once a venue and date are chosen (the save insists too).
+    function slotMissing() {
+      if (!slotField || slotField.classList.contains('hidden') || chosenSlot()) { return false; }
+      var v = field('venue_id') ? field('venue_id').value : '';
+      return /^\d+$/.test(v) && validDate(field('event_date') && field('event_date').value);
+    }
+    if (slotField) {
+      if (field('venue_id')) { field('venue_id').addEventListener('change', refreshSlots); }
+      if (field('event_date')) { field('event_date').addEventListener('change', refreshSlots); }
+      slotGrid.addEventListener('change', function () {
+        if (slotMsg && slotMsg.classList.contains('is-error')) { setSlotMessage(''); }
+      });
+    }
+
     // ---- The wizard: three steps over one form ----------------------------------------------
     // The sheet is one long form of 7–9 sections, and it must stay one form: a single POST is what
     // reserves the SLA number and writes the totals. So the steps are presentation only — every
@@ -615,7 +755,18 @@
     buildToggles();
     buildStepper();
     if (prevBtn) { prevBtn.addEventListener('click', function () { showStep(current - 1, true); }); }
-    if (nextBtn) { nextBtn.addEventListener('click', function () { showStep(current + 1, true); }); }
+    if (nextBtn) {
+      nextBtn.addEventListener('click', function () {
+        if (panelIndexOf(slotField) === current && slotMissing()) {
+          var open = slotGrid.querySelector('input[name="slot_id"]:not(:disabled)');
+          if (open) { setSlotMessage('Choose an available event slot to continue.', true); }
+          try { slotField.scrollIntoView({ block: 'center' }); } catch (e) { /* still shown, just not scrolled to */ }
+          if (open) { open.focus(); }
+          return;
+        }
+        showStep(current + 1, true);
+      });
+    }
 
     // Optional sections start collapsed, but only when they are empty and error-free —
     // never hide something the user typed or something the server complained about.

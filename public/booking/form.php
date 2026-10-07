@@ -47,7 +47,8 @@ $users = $viewer['role'] === 'admin' ? active_users($pdo) : [];
 $venues = venues_for_form($pdo, $booking ? ($booking['venue_id'] === null ? null : (int) $booking['venue_id']) : null);
 $conflict = false;
 $clashMessages = $booking ? venue_clash_messages(
-    venue_clashes($pdo, (int) $booking['id'], $booking['venue_id'] === null ? null : (int) $booking['venue_id'], $booking['event_date']),
+    venue_clashes($pdo, (int) $booking['id'], $booking['venue_id'] === null ? null : (int) $booking['venue_id'], $booking['event_date'],
+        $booking['slot_id'] === null ? null : (int) $booking['slot_id']),
     $booking['event_date'], $viewer['role'] === 'admin') : [];
 
 $pageTitle = $booking ? $booking['unique_id'] : 'New booking';

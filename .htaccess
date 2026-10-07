@@ -12,3 +12,8 @@ Options -Indexes
     RewriteCond %{REQUEST_URI} !/public/
     RewriteRule ^(.*)$ public/$1 [L]
 </IfModule>
+
+# If rewriting is ever unavailable, serve nothing rather than the project files.
+<IfModule !mod_rewrite.c>
+    Require all denied
+</IfModule>

@@ -37,8 +37,7 @@ $decorSections = array_intersect_key($d['lines'], array_flip(['decor_general', '
         <th>Event</th><td><?= h(dchoice($booking, 'event_type', 'event_type_other')) ?></td></tr>
     <tr><th>Event date</th><td><?= h(ddate($booking['event_date'])) ?><?= $d['event_day'] ? ' (' . h($d['event_day']) . ')' : '' ?></td>
         <th>No. of PAX</th><td><?= $guests ?></td></tr>
-    <tr><th>Setup ready by</th><td><?= h(dtime($booking['setup_time'])) ?></td>
-        <th>Event starts</th><td><?= h(dtime($booking['start_time'])) ?></td></tr>
+    <tr><th>Event time</th><td colspan="3"><?= h(dslot($booking)) ?></td></tr>
     <tr><th>Client</th><td><?= h(dv($booking['client_name'])) ?></td>
         <th>Client contact</th><td><?= h(dv($booking['client_contact'])) ?></td></tr>
   </table>

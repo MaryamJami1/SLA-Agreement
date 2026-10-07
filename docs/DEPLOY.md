@@ -73,6 +73,11 @@ Notes:
 - `storage/uploads`, `storage/logs` and `storage/sessions` must exist and be writable (permission 755 is enough
   on Hostinger; the web server runs as your own user).
 
+**Installing in a sub-folder (e.g. `https://applesoft.biz/event`):** upload the whole project, `.htaccess`
+at its root included, into `public_html/event/`. That `.htaccess` passes every request to `public/`, so
+`app/`, `config/`, `database/` and `storage/` are never reachable. In `config.php` set `'BASE_URL' => '/event'`
+and `'ALLOW_APP_IN_WEBROOT' => true`.
+
 ---
 
 ## 5. Write config.php
@@ -166,6 +171,13 @@ As the admin:
 
 Migration `002_venue_location.sql` adds `venues.location` and `bookings.venue_location`. Until it is
 imported, every page that touches a venue will fail, so import it before uploading the PHP files.
+
+Migration `016_venue_slots.sql` adds event slots: the `venue_slots` table (seeded with Morning
+12:00–3:00 PM, Afternoon 4:00–7:00 PM and Evening 8:00 PM–12:00 AM for every existing venue) and the
+slot columns on `bookings`, including the unique key that stops one venue slot being booked twice on
+one date. Import it before uploading the PHP files. Existing bookings are left as they were (no slot,
+their own start time); a confirmed one still holds its whole day. Adjust each venue's slots under
+**Event Slots** afterwards.
 
 ## If something goes wrong
 

@@ -152,6 +152,226 @@ function venue_is_used(PDO $pdo, int $venueId): bool
 }
 
 // ---------------------------------------------------------------------------
+// Event slots (per venue; see app/slots.php)
+// ---------------------------------------------------------------------------
+
+/** Every slot of a venue, active or not, with how many bookings have ever used it. */
+function venue_slots_with_usage(PDO $pdo, int $venueId): array
+{
+    $st = $pdo->prepare('SELECT s.*, (SELECT COUNT(*) FROM bookings b WHERE b.slot_id = s.id) AS bookings
+                           FROM venue_slots s WHERE s.venue_id = ? ORDER BY s.sort_order, s.start_time, s.id');
+    $st->execute([$venueId]);
+    return $st->fetchAll();
+}
+
+/** 'HH:MM' from a time input → 'HH:MM:00'. */
+function clean_slot_time($raw, string $label): string
+{
+    $raw = trim(is_string($raw) ? $raw : '');
+    if ($raw === '') {
+        throw new AdminRefused("Enter the $label.");
+    }
+    if (preg_match('/^([01]\d|2[0-3]):([0-5]\d)(?::00)?$/', $raw, $m) !== 1) {
+        throw new AdminRefused(ucfirst($label) . ': enter a valid time.');
+    }
+    return "{$m[1]}:{$m[2]}:00";
+}
+
+/**
+ * The posted slot, validated. An end at or before the start is only accepted as "the next day" when
+ * the admin says so (ticks "Ends after midnight"), so 3:00 PM → 12:00 PM can't become a 21-hour slot
+ * by a slip. Ending exactly at 12:00 AM (midnight) needs no tick.
+ *
+ * @return array{name: string, icon: ?string, start_time: string, end_time: string, sort_order: int}
+ */
+function clean_slot_input(array $post): array
+{
+    $name = clean_name($post['name'] ?? '', SLOT_NAME_MAX, 'slot name');
+    $icon = clean_optional_name($post['icon'] ?? '', SLOT_ICON_MAX, 'icon');
+    $start = clean_slot_time($post['start_time'] ?? '', 'start time');
+    $end = clean_slot_time($post['end_time'] ?? '', 'end time');
+    $nextDay = isset($post['ends_next_day']);
+    if ($start === $end) {
+        throw new AdminRefused('The end time must be different from the start time.');
+    }
+    $crosses = slot_crosses_midnight($start, $end);
+    if ($crosses && !$nextDay && $end !== '00:00:00') {
+        throw new AdminRefused('The end time (' . slot_time_label($end) . ') is before the start time (' . slot_time_label($start)
+            . '). If the slot runs past midnight, tick “Ends after midnight”.');
+    }
+    if (!$crosses && $nextDay) {
+        throw new AdminRefused('“Ends after midnight” is ticked, but ' . slot_time_label($end) . ' is after ' . slot_time_label($start)
+            . ' on the same day. Untick it, or choose an end time after midnight.');
+    }
+    return ['name' => $name, 'icon' => $icon, 'start_time' => $start, 'end_time' => $end,
+        'sort_order' => clean_sort_order($post['sort_order'] ?? '0')];
+}
+
+/** Refuse when the slot would overlap another active slot of the same venue. */
+function assert_no_slot_overlap(PDO $pdo, int $venueId, ?int $exceptSlotId, string $start, string $end): void
+{
+    foreach (venue_slots($pdo, $venueId) as $other) {
+        if ((int) $other['id'] !== $exceptSlotId && slots_overlap($start, $end, $other['start_time'], $other['end_time'])) {
+            throw new AdminRefused(slot_range_label($start, $end) . ' overlaps “' . $other['name'] . '” ('
+                . slot_range_label($other['start_time'], $other['end_time']) . '). Slots at one venue can\'t overlap — '
+                . 'change the times, or disable “' . $other['name'] . '” first.');
+        }
+    }
+}
+
+/** Lock the venue row: slot changes at one venue happen one at a time (and queue behind bookings). */
+function lock_venue_for_slots(PDO $pdo, int $venueId): array
+{
+    $st = $pdo->prepare('SELECT * FROM venues WHERE id = ? FOR UPDATE');
+    $st->execute([$venueId]);
+    $venue = $st->fetch();
+    if (!$venue) {
+        throw new AdminRefused('That venue no longer exists.');
+    }
+    return $venue;
+}
+
+function slot_duplicate_name(PDOException $e, string $name): void
+{
+    if ((int) ($e->errorInfo[1] ?? 0) === 1062) {
+        throw new AdminRefused("This venue already has a slot called “{$name}”.");
+    }
+    throw $e;
+}
+
+function create_venue_slot(PDO $pdo, array $admin, int $venueId, array $slot): string
+{
+    try {
+        return db_transaction(static function (PDO $pdo) use ($admin, $venueId, $slot) {
+            lock_venue_for_slots($pdo, $venueId);
+            assert_no_slot_overlap($pdo, $venueId, null, $slot['start_time'], $slot['end_time']);
+            $pdo->prepare('INSERT INTO venue_slots (venue_id, name, icon, start_time, end_time, sort_order, is_active)
+                           VALUES (?, ?, ?, ?, ?, ?, 1)')
+                ->execute([$venueId, $slot['name'], $slot['icon'], $slot['start_time'], $slot['end_time'], $slot['sort_order']]);
+            audit($pdo, 'venue_change', (int) $admin['id'], null,
+                ['venue_id' => $venueId, 'slot_created' => ['id' => (int) $pdo->lastInsertId()] + $slot]);
+            return $slot['name'];
+        }, $pdo);
+    } catch (PDOException $e) {
+        slot_duplicate_name($e, $slot['name']);
+    }
+}
+
+/**
+ * Change a slot's name, icon, times, order or status. Bookings keep the name and times they were made
+ * with (their own snapshot), so this never changes an existing booking — only new ones.
+ */
+function update_venue_slot(PDO $pdo, array $admin, int $slotId, array $slot, bool $isActive): string
+{
+    try {
+        return db_transaction(static function (PDO $pdo) use ($admin, $slotId, $slot, $isActive) {
+            $old = slot_for_update($pdo, $slotId);
+            if ($isActive) {
+                assert_no_slot_overlap($pdo, (int) $old['venue_id'], $slotId, $slot['start_time'], $slot['end_time']);
+            }
+            $pdo->prepare('UPDATE venue_slots SET name = ?, icon = ?, start_time = ?, end_time = ?, sort_order = ?, is_active = ?,
+                                  updated_at = NOW() WHERE id = ?')
+                ->execute([$slot['name'], $slot['icon'], $slot['start_time'], $slot['end_time'], $slot['sort_order'], $isActive ? 1 : 0, $slotId]);
+            $changed = [];
+            foreach ($slot + ['is_active' => $isActive ? 1 : 0] as $field => $value) {
+                if ((string) $old[$field] !== (string) $value) {
+                    $changed[$field] = [$old[$field], $value];
+                }
+            }
+            if ($changed) {
+                audit($pdo, 'venue_change', (int) $admin['id'], null,
+                    ['venue_id' => (int) $old['venue_id'], 'slot_id' => $slotId, 'slot_changed' => $changed]);
+            }
+            return $slot['name'];
+        }, $pdo);
+    } catch (PDOException $e) {
+        slot_duplicate_name($e, $slot['name']);
+    }
+}
+
+/** Enable or disable a slot. A disabled slot isn't offered on new bookings; bookings holding it keep it. */
+function set_venue_slot_active(PDO $pdo, array $admin, int $slotId, bool $isActive): string
+{
+    return db_transaction(static function (PDO $pdo) use ($admin, $slotId, $isActive) {
+        $old = slot_for_update($pdo, $slotId);
+        if ($isActive) {
+            assert_no_slot_overlap($pdo, (int) $old['venue_id'], $slotId, $old['start_time'], $old['end_time']);
+        }
+        if ((int) $old['is_active'] !== ($isActive ? 1 : 0)) {
+            $pdo->prepare('UPDATE venue_slots SET is_active = ?, updated_at = NOW() WHERE id = ?')->execute([$isActive ? 1 : 0, $slotId]);
+            audit($pdo, 'venue_change', (int) $admin['id'], null,
+                ['venue_id' => (int) $old['venue_id'], 'slot_id' => $slotId, 'slot_changed' => ['is_active' => [(int) $old['is_active'], $isActive ? 1 : 0]]]);
+        }
+        return $old['name'];
+    }, $pdo);
+}
+
+/** Delete a slot no booking has ever used (any status). A used slot can only be disabled. */
+function delete_venue_slot(PDO $pdo, array $admin, int $slotId): string
+{
+    return db_transaction(static function (PDO $pdo) use ($admin, $slotId) {
+        $old = slot_for_update($pdo, $slotId);
+        $st = $pdo->prepare('SELECT COUNT(*) FROM bookings WHERE slot_id = ?');
+        $st->execute([$slotId]);
+        if ((int) $st->fetchColumn() > 0) {
+            throw new AdminRefused("“{$old['name']}” is used by at least one booking, so it can't be deleted — those bookings "
+                . 'would lose their slot. Disable it instead: it stops being offered, and existing bookings keep it.');
+        }
+        $pdo->prepare('DELETE FROM venue_slots WHERE id = ?')->execute([$slotId]);
+        audit($pdo, 'venue_change', (int) $admin['id'], null,
+            ['venue_id' => (int) $old['venue_id'], 'slot_deleted' => ['id' => $slotId, 'name' => $old['name']]]);
+        return $old['name'];
+    }, $pdo);
+}
+
+/** Copy another venue's active slots to a venue that has none yet (a quick start for a new venue). */
+function copy_venue_slots(PDO $pdo, array $admin, int $fromVenueId, int $toVenueId): int
+{
+    if ($fromVenueId === $toVenueId) {
+        throw new AdminRefused('Choose a different venue to copy from.');
+    }
+    return db_transaction(static function (PDO $pdo) use ($admin, $fromVenueId, $toVenueId) {
+        lock_venue_for_slots($pdo, $toVenueId);
+        $st = $pdo->prepare('SELECT COUNT(*) FROM venue_slots WHERE venue_id = ?');
+        $st->execute([$toVenueId]);
+        if ((int) $st->fetchColumn() > 0) {
+            throw new AdminRefused('This venue already has slots. Copying is only for a venue with none yet.');
+        }
+        $source = venue_slots($pdo, $fromVenueId);
+        if (!$source) {
+            throw new AdminRefused('That venue has no active slots to copy.');
+        }
+        $insert = $pdo->prepare('INSERT INTO venue_slots (venue_id, name, icon, start_time, end_time, sort_order, is_active)
+                                 VALUES (?, ?, ?, ?, ?, ?, 1)');
+        foreach ($source as $s) {
+            $insert->execute([$toVenueId, $s['name'], $s['icon'], $s['start_time'], $s['end_time'], $s['sort_order']]);
+        }
+        audit($pdo, 'venue_change', (int) $admin['id'], null,
+            ['venue_id' => $toVenueId, 'slots_copied_from' => $fromVenueId, 'count' => count($source)]);
+        return count($source);
+    }, $pdo);
+}
+
+/** The slot row, locked after its venue (same lock order as bookings: venue first). */
+function slot_for_update(PDO $pdo, int $slotId): array
+{
+    $st = $pdo->prepare('SELECT venue_id FROM venue_slots WHERE id = ?');
+    $st->execute([$slotId]);
+    $venueId = $st->fetchColumn();
+    if ($venueId === false) {
+        throw new AdminRefused('That slot no longer exists.');
+    }
+    lock_venue_for_slots($pdo, (int) $venueId);
+    $st = $pdo->prepare('SELECT * FROM venue_slots WHERE id = ? FOR UPDATE');
+    $st->execute([$slotId]);
+    $slot = $st->fetch();
+    if (!$slot) {
+        throw new AdminRefused('That slot no longer exists.');
+    }
+    return $slot;
+}
+
+// ---------------------------------------------------------------------------
 // Item catalog
 // ---------------------------------------------------------------------------
 

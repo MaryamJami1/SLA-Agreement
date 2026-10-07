@@ -16,9 +16,12 @@ $ref = csrf_field() . '<input type="hidden" name="id" value="' . (int) $booking[
 
 $blocking = [];
 if ($booking['status'] === 'draft' && $booking['venue_id'] !== null && $booking['event_date'] !== null) {
+    // Same slot, or either booking has no slot (bookings from before slots existed took the whole day).
     $q = $pdo->prepare("SELECT unique_id, status FROM bookings WHERE venue_id = ? AND event_date = ?
-                          AND status IN ('confirmed', 'completed') AND id <> ?");
-    $q->execute([(int) $booking['venue_id'], $booking['event_date'], (int) $booking['id']]);
+                          AND status IN ('confirmed', 'completed') AND id <> ?"
+                       . ($booking['slot_id'] !== null ? ' AND (slot_id IS NULL OR slot_id = ?)' : ''));
+    $q->execute(array_merge([(int) $booking['venue_id'], $booking['event_date'], (int) $booking['id']],
+        $booking['slot_id'] !== null ? [(int) $booking['slot_id']] : []));
     $blocking = $q->fetchAll();
 }
 $actions = $isAdmin || $canDelete;

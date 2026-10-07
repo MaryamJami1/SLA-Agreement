@@ -39,11 +39,15 @@ $blockers = [];
 foreach ($drafts as $d) {
     $id = (int) $d['id'];
     $blockers[$id] = confirm_requirement_problems($pdo, $d);
+    if ($d['venue_id'] !== null && $d['slot_id'] === null) {
+        $blockers[$id][] = 'an event slot';
+    }
     if ($d['user_id'] === null) {
         $blockers[$id][] = 'a user';
     }
     foreach (venue_clash_messages(
-        venue_clashes($pdo, $id, $d['venue_id'] === null ? null : (int) $d['venue_id'], $d['event_date']),
+        venue_clashes($pdo, $id, $d['venue_id'] === null ? null : (int) $d['venue_id'], $d['event_date'],
+            $d['slot_id'] === null ? null : (int) $d['slot_id']),
         $d['event_date'], true) as $clash) {
         $blockers[$id][] = $clash;
     }
@@ -111,7 +115,7 @@ require APP_ROOT . '/app/views/layout_top.php';
         <td><?= h($d['client_name'] ?? '—') ?></td>
         <td><?= h($d['user_firm'] ?? $d['user_username'] ?? '—') ?></td>
         <td><?= $d['event_date'] ? h(date('d M Y', strtotime($d['event_date']))) : '<span class="hint">not set</span>' ?></td>
-        <td><?= h($d['venue_name'] ?? '—') ?></td>
+        <td><?= h($d['venue_name'] ?? '—') ?><?php if ($d['slot_name'] !== null): ?><div class="hint"><?= h(booking_slot_label($d)) ?></div><?php endif; ?></td>
         <td class="num"><?= h(rs($d['grand_total'])) ?></td>
         <td>
 <?php if (!$problems): ?>

@@ -79,10 +79,10 @@ foreach (['schema.sql', 'seed.sql', 'menu_data.sql'] as $file) {
 $tables = $pdo->query("SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()")
     ->fetchAll(PDO::FETCH_COLUMN);
 sort($tables, SORT_STRING);
-check('all 28 tables exist', $tables, ['attachments', 'audit_log', 'booking_defaults', 'booking_line_items', 'booking_vendor_items', 'bookings', 'counters',
+check('all 29 tables exist', $tables, ['attachments', 'audit_log', 'booking_defaults', 'booking_line_items', 'booking_vendor_items', 'bookings', 'counters',
     'form_options', 'form_sections', 'item_catalog', 'login_attempts', 'menu_categories', 'menu_dishes', 'menu_package_items', 'menu_packages', 'menu_types', 'payments', 'schema_version', 'users',
     'vendor_categories', 'vendor_category_services', 'vendor_invoice_counters', 'vendor_invoice_items', 'vendor_invoices', 'vendor_payments', 'vendor_services',
-    'vendors', 'venues']);
+    'vendors', 'venue_slots', 'venues']);
 check('all tables InnoDB', (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND engine <> 'InnoDB'")->fetchColumn(), 0);
 // schema.sql must record version 1 plus every migration, so a fresh install and an upgraded
 // database agree on where they are. Derived from the files, so adding a migration can't be forgotten.
@@ -312,6 +312,12 @@ $userRow = $pdo->query("SELECT * FROM users WHERE username = 'okuser'")->fetch()
 $adminRow = $pdo->query("SELECT * FROM users WHERE username = 'admin'")->fetch();
 $catalogId = static fn(string $name) => (int) $pdo->query('SELECT id FROM item_catalog WHERE name = ' . $pdo->quote($name) . ' ORDER BY id LIMIT 1')->fetchColumn();
 $lawnA = (int) $pdo->query("SELECT id FROM venues WHERE name = 'Lawn A'")->fetchColumn();
+/** A venue's slot id by name (seed.sql gives every venue Morning, Afternoon and Evening). */
+$slotOf = static function (int $venueId, string $name = 'Morning') use ($pdo): int {
+    $st = $pdo->prepare('SELECT id FROM venue_slots WHERE venue_id = ? AND name = ?');
+    $st->execute([$venueId, $name]);
+    return (int) $st->fetchColumn();
+};
 $venueCharge = $catalogId('Venue Charges');
 $led = $catalogId('LED');
 $sofa = (int) $pdo->query("SELECT id FROM item_catalog WHERE section = 'ops_item' AND name = 'Sofa'")->fetchColumn();
@@ -344,8 +350,9 @@ $ver0 = static fn(int $id): int => (int) $bookingRow($id)['version'];
 
 $post = [
     'client_name' => 'Ayesha Siddiqui', 'client_cnic' => '4210112345671', 'event_type' => 'Valima',
-    'event_date' => '2026-12-20', 'venue_id' => (string) $lawnA, 'guests' => '200', 'per_head_rate' => '1,500',
-    'setup_time' => '18:00', 'user_id' => (string) $adminRow['id'], // forged: users can't choose the owner
+    'event_date' => '2026-12-20', 'venue_id' => (string) $lawnA, 'slot_id' => (string) $slotOf($lawnA), 'guests' => '200', 'per_head_rate' => '1,500',
+    'setup_time' => '18:00', 'start_time' => '09:15', // setup time is ignored; the slot sets the start time
+    'user_id' => (string) $adminRow['id'], // forged: users can't choose the owner
     'firm_name' => 'Forged Firm', 'event_type_other' => 'ignored because type is not Other',
     'lines' => [
         "c$venueCharge" => ['present' => '1', 'selected' => '1', 'rate' => '50000'],
@@ -363,7 +370,10 @@ check('firm snapshot from the user profile, not the POST', [$b['firm_name'], $b[
 check('status draft, version 1', [$b['status'], (int) $b['version']], ['draft', 1]);
 check('CNIC normalized', $b['client_cnic'], '42101-1234567-1');
 check('"Other" text dropped when type is not Other', $b['event_type_other'], null);
-check('time stored', $b['setup_time'], '18:00:00');
+check('setup time is no longer recorded', $b['setup_time'], null);
+check('slot and its snapshot stored; the start time is the slot\'s',
+    [(int) $b['slot_id'], $b['slot_name'], $b['slot_start'], $b['slot_end'], $b['start_time']],
+    [$slotOf($lawnA), 'Morning', '12:00:00', '15:00:00', '12:00:00']);
 // Booking Organizer sets the money. The user's posted per-head rate, refund terms, payment terms and the
 // Booking Organizer receipt are all discarded, and its charge line is not added at all.
 check('user cannot price its own booking',
@@ -452,19 +462,49 @@ check('catalog rename keeps the snapshot label', $pdo->query("SELECT label FROM 
 $pendingId = (int) $pdo->query("SELECT id FROM users WHERE username = 'pendinguser'")->fetchColumn();
 [$r, $errs] = $submit($adminRow, null, null, ['client_name' => 'Walk-in', 'user_id' => (string) $pendingId]);
 check('admin cannot assign a pending user', array_keys($errs), ['user_id']);
-[$r, $errs] = $submit($adminRow, null, null, ['client_name' => 'Walk-in', 'user_id' => (string) $userRow['id'], 'venue_id' => (string) $lawnA, 'event_date' => '2026-12-20']);
+$walkIn = ['client_name' => 'Walk-in', 'user_id' => (string) $userRow['id'], 'venue_id' => (string) $lawnA, 'event_date' => '2026-12-20'];
+[$r, $errs] = $submit($adminRow, null, null, $walkIn);
+check('a listed venue and date need a slot', array_keys($errs), ['slot_id']);
+[$r, $errs] = $submit($adminRow, null, null, ['slot_id' => (string) $slotOf($lawnA)] + $walkIn);
+check('the same venue, date and slot can\'t be booked twice', strpos((string) ($errs['slot_id'] ?? ''), 'Morning is already booked') !== false, true);
+check('the admin is told which booking holds it', strpos((string) ($errs['slot_id'] ?? ''), $created['unique_id']) !== false, true);
+[$r, $errs] = $submit($userRow, null, null, ['slot_id' => (string) $slotOf($lawnA)] + $walkIn);
+check('a user is not told who holds it', [isset($errs['slot_id']), strpos((string) ($errs['slot_id'] ?? ''), 'SLA-')], [true, false]);
+$lawnBId = (int) $pdo->query("SELECT id FROM venues WHERE name = 'Lawn B'")->fetchColumn();
+[$r, $errs] = $submit($adminRow, null, null, ['slot_id' => (string) $slotOf($lawnBId)] + $walkIn);
+check('a slot of another venue is refused', strpos((string) ($errs['slot_id'] ?? ''), 'offered for this venue') !== false, true);
+[$r, $errs] = $submit($adminRow, null, null, ['slot_id' => (string) $slotOf($lawnA, 'Evening')] + $walkIn);
 check('admin assigns an active user', $errs, []);
 $b2 = $bookingRow($r['id']);
 check('snapshot filled from the user profile', $b2['firm_name'], 'Uzair Caterers');
 check('created_by = admin, user_id = user', [(int) $b2['created_by'], (int) $b2['user_id']], [(int) $adminRow['id'], (int) $userRow['id']]);
 [$r2, $errs] = $submit($adminRow, $r['id'], 1, ['client_name' => 'Walk-in', 'user_id' => (string) $userRow['id'], 'firm_name' => 'Override Firm',
-    'venue_id' => (string) $lawnA, 'event_date' => '2026-12-20']);
+    'venue_id' => (string) $lawnA, 'slot_id' => (string) $slotOf($lawnA, 'Evening'), 'event_date' => '2026-12-20']);
 check('admin re-save keeps created_by, override kept', [(int) $bookingRow($r['id'])['created_by'], $bookingRow($r['id'])['firm_name']], [(int) $adminRow['id'], 'Override Firm']);
 
-// Venue warning: two drafts on Lawn A on 20 Dec.
+// Two drafts on Lawn A on 20 Dec, Morning and Evening: different slots don't clash.
+check('different slots of one venue and date don\'t clash', venue_clashes($pdo, $created['id'], $lawnA, '2026-12-20', $slotOf($lawnA)), []);
+$avail = slot_availability($pdo, $lawnA, '2026-12-20', null, null);
+check('availability: Morning and Evening booked, Afternoon free',
+    array_map(static fn($s) => [$s['name'], $s['time'], $s['available']], $avail),
+    [['Morning', '12:00 PM – 3:00 PM', false], ['Afternoon', '4:00 PM – 7:00 PM', true], ['Evening', '8:00 PM – 12:00 AM', false]]);
+$avail = slot_availability($pdo, $lawnA, '2026-12-20', (int) $created['id'], $slotOf($lawnA));
+check('availability for the booking itself: its own slot stays selectable', [$avail[0]['available'], $avail[0]['own']], [true, true]);
+check('availability on another date: all free', array_column(slot_availability($pdo, $lawnA, '2026-12-21', null, null), 'available'), [true, true, true]);
+// The whole-day check (a booking without a slot) still sees the other draft.
 $clashes = venue_clashes($pdo, $created['id'], $lawnA, '2026-12-20');
 check('clash with the other draft found', array_column($clashes, 'status'), ['draft']);
 check('user clash message hides the SLA number', strpos(venue_clash_messages($clashes, '2026-12-20', false)[0], 'SLA-') === false, true);
+
+// The database itself refuses a second live booking of the same slot and date.
+try {
+    $pdo->prepare("INSERT INTO bookings (unique_id, created_by, client_name, event_date, venue_id, slot_id) VALUES ('SLA-2099-9999', ?, 'Raw', '2026-12-20', ?, ?)")
+        ->execute([$adminRow['id'], $lawnA, $slotOf($lawnA)]);
+    $dup = null;
+} catch (PDOException $e) {
+    $dup = is_slot_hold_violation($e);
+}
+check('unique key refuses a double-booked slot', $dup, true);
 
 // A confirmed booking can't be saved as a draft.
 $pdo->exec("UPDATE bookings SET status = 'confirmed' WHERE id = {$created['id']}");
@@ -502,8 +542,9 @@ $save = static function (array $user, int $id, array $post) use ($pdo, $bookingR
         return [null, $e->errors];
     }
 };
-$basePost = static fn(string $client, int $venue, string $date) => [
-    'client_name' => $client, 'event_date' => $date, 'venue_id' => (string) $venue, 'guests' => '100', 'per_head_rate' => '1000',
+$basePost = static fn(string $client, int $venue, string $date, string $slot = 'Morning') => [
+    'client_name' => $client, 'event_date' => $date, 'venue_id' => (string) $venue, 'slot_id' => (string) $slotOf($venue, $slot),
+    'guests' => '100', 'per_head_rate' => '1000',
 ];
 // A user-owned booking that carries money. Only Booking Organizer sets money (ADMIN_ONLY_FIELDS), so a
 // priced booking is saved by the admin with the user named as its owner. A user raising its own
@@ -512,26 +553,45 @@ $userBooking = static fn(array $post) => $submit($adminRow, null, null, ['user_i
 $confirmMsg = static fn(int $id, string $override = '') => $refused(fn() => confirm_booking($pdo, $adminRow, $id, $ver($id), $override));
 
 // Confirm: requirements.
-[$noUser] = $submit($adminRow, null, null, $basePost('No User', $lawnB, '2027-01-10'));
+[$noUser] = $submit($adminRow, null, null, $basePost('No User', $lawnB, '2027-01-11'));
 check('confirm refused without a user', strpos((string) $confirmMsg($noUser['id']), 'an active, approved user') !== false, true);
-[$zero] = $submit($userRow, null, null, ['client_name' => 'Zero', 'event_date' => '2027-01-10', 'venue_id' => (string) $lawnB]);
+[$zero] = $submit($userRow, null, null, ['client_name' => 'Zero', 'event_date' => '2027-01-10', 'venue_id' => (string) $lawnB, 'slot_id' => (string) $slotOf($lawnB, 'Afternoon')]);
 check('confirm refused with a Rs. 0 net amount', strpos((string) $confirmMsg($zero['id']), 'net amount above Rs. 0') !== false, true);
 
-// Confirm: success, stale version, second booking on the same venue and date.
+// Confirm: success, stale version, a second booking on the same venue and date in another slot.
 [$A] = $userBooking($basePost('Client A', $lawnB, '2027-01-10'));
-[$Bk] = $userBooking($basePost('Client B', $lawnB, '2027-01-10'));
+[, $sameSlot] = $userBooking($basePost('Client B', $lawnB, '2027-01-10'));
+check('a second booking in the same slot is refused at once', isset($sameSlot['slot_id']), true);
+[$Bk] = $userBooking($basePost('Client B', $lawnB, '2027-01-10', 'Evening'));
 check('confirm with a stale version', $refused(fn() => confirm_booking($pdo, $adminRow, $A['id'], $ver($A['id']) - 1, '')), 'CONFLICT');
 check('confirm A', $confirmMsg($A['id']), null);
 check('A is confirmed with version + 1', [$bookingRow($A['id'])['status'], $ver($A['id'])], ['confirmed', 2]);
 check('confirm audited', (int) $pdo->query("SELECT COUNT(*) FROM audit_log WHERE action = 'confirm' AND booking_id = {$A['id']}")->fetchColumn(), 1);
 check('confirm A again refused (not a draft)', strpos((string) $confirmMsg($A['id']), 'Only a draft') === 0, true);
-$msg = $confirmMsg($Bk['id']);
-check('B blocked by the confirmed A on the same venue and date', strpos((string) $msg, 'already confirmed for ' . $A['unique_id']) !== false, true);
-check('B still a draft', $bookingRow($Bk['id'])['status'], 'draft');
-check('B confirmed with an override reason', $confirmMsg($Bk['id'], 'Client A moved to the evening slot'), null);
-$ov = json_decode($pdo->query("SELECT details FROM audit_log WHERE action = 'confirm' AND booking_id = {$Bk['id']}")->fetchColumn(), true);
+check('B in another slot confirms alongside A', $confirmMsg($Bk['id']), null);
+
+// A booking from before slots existed (no slot) took the whole day: confirming into that day needs an override.
+$lawnC = (int) $pdo->query("SELECT id FROM venues WHERE name = 'Lawn C'")->fetchColumn();
+$clearSlot = static fn(int $id) => $pdo->exec("UPDATE bookings SET slot_id = NULL, slot_name = NULL, slot_start = NULL, slot_end = NULL, version = version + 1 WHERE id = $id");
+[$LEG] = $userBooking($basePost('Legacy', $lawnC, '2027-01-20'));
+$confirmMsg($LEG['id']);
+$clearSlot($LEG['id']);
+check('availability: a whole-day booking marks every slot booked', array_column(slot_availability($pdo, $lawnC, '2027-01-20', null, null), 'available'), [false, false, false]);
+[$H] = $userBooking($basePost('Client H', $lawnC, '2027-01-20', 'Evening'));
+$msg = $confirmMsg($H['id']);
+check('H blocked by the whole-day booking', strpos((string) $msg, 'already confirmed for ' . $LEG['unique_id']) !== false, true);
+check('H still a draft', $bookingRow($H['id'])['status'], 'draft');
+check('H confirmed with an override reason', $confirmMsg($H['id'], 'Legacy booking ends at 3 PM'), null);
+$ov = json_decode($pdo->query("SELECT details FROM audit_log WHERE action = 'confirm' AND booking_id = {$H['id']}")->fetchColumn(), true);
 check('override reason and conflict audited', [$ov['venue_override']['reason'] ?? null, $ov['venue_override']['conflicts_with'] ?? null],
-    ['Client A moved to the evening slot', [$A['unique_id']]]);
+    ['Legacy booking ends at 3 PM', [$LEG['unique_id']]]);
+// A draft without a slot (from before slots existed) can still be saved as it is, but not confirmed.
+[$NS] = $userBooking($basePost('No Slot', $lawnC, '2027-01-21'));
+$clearSlot($NS['id']);
+[, $e] = $submit($adminRow, $NS['id'], $ver($NS['id']), ['user_id' => (string) $userRow['id'], 'guests' => '120']
+    + array_diff_key($basePost('No Slot', $lawnC, '2027-01-21'), ['slot_id' => 1]));
+check('an older draft without a slot saves unchanged', $e, []);
+check('confirm refused without an event slot', strpos((string) $confirmMsg($NS['id']), 'an event slot') !== false, true);
 
 // Confirm: a cancelled booking on the same venue/date doesn't block; an inactive venue does.
 [$C1] = $userBooking($basePost('Client C1', $hall, '2027-02-01'));
@@ -620,15 +680,20 @@ $pdo->prepare('INSERT INTO attachments (booking_id, original_name, stored_name, 
 check('a voided signed copy does not count', $e['signed_copy'] ?? null, 'Upload the signed copy of Rev 2 before amending.');
 [$r, $e] = $save($adminRow, $C2['id'], ['guests' => '160'] + $c2Post); // clear the signatures directly (a direct edit)
 check('signatures cleared by a direct edit', [$e, $bookingRow($C2['id'])['client_sign_name']], [[], null]);
-// Venue move onto a confirmed booking's venue/date: needs an override.
+// Moving onto a slot another booking holds: refused outright, override or not.
 [$G] = $userBooking($basePost('Client G', $lawnB, '2027-05-05'));
 $confirmMsg($G['id']);
-$moveTo = ['venue_id' => (string) $lawnB, 'event_date' => '2027-05-05', 'guests' => '160', 'amend_reason' => 'Moved to Lawn B'] + $c2Post;
+$moveTo = ['venue_id' => (string) $lawnB, 'slot_id' => (string) $slotOf($lawnB), 'event_date' => '2027-05-05', 'guests' => '160', 'amend_reason' => 'Moved to Lawn B'] + $c2Post;
+[$r, $e] = $save($adminRow, $C2['id'], ['override_reason' => 'please'] + $moveTo);
+check('amend onto a booked slot is refused', strpos((string) ($e['slot_id'] ?? ''), 'already booked') !== false, true);
+// Moving into a free slot of a day a whole-day (no slot) booking holds: needs an override.
+$clearSlot($G['id']);
+$moveTo = ['slot_id' => (string) $slotOf($lawnB, 'Evening')] + $moveTo;
 [$r, $e] = $save($adminRow, $C2['id'], $moveTo);
-check('amend onto a confirmed venue/date needs an override', strpos((string) ($e['venue_override'] ?? ''), $G['unique_id']) !== false, true);
+check('amend onto a whole-day booking needs an override', strpos((string) ($e['venue_override'] ?? ''), $G['unique_id']) !== false, true);
 [$r, $e] = $save($adminRow, $C2['id'], ['override_reason' => 'Client G uses the lawn in the morning'] + $moveTo);
 check('amend with override accepted', $e, []);
-check('booking moved', [(int) $bookingRow($C2['id'])['venue_id'], $bookingRow($C2['id'])['event_date']], [$lawnB, '2027-05-05']);
+check('booking moved', [(int) $bookingRow($C2['id'])['venue_id'], $bookingRow($C2['id'])['event_date'], $bookingRow($C2['id'])['slot_name']], [$lawnB, '2027-05-05', 'Evening']);
 [$r, $e] = $save($adminRow, $C2['id'], ['event_date' => '', 'amend_reason' => 'x'] + $moveTo);
 check('an amendment can\'t remove the event date', strpos((string) ($e['status'] ?? ''), 'an event date') !== false, true);
 check('user cannot use the confirmed save', $refused(function () use ($pdo, $userRow, $C2, $bookingRow) {
@@ -666,7 +731,7 @@ $money = static fn(int $id): array => array_values(array_intersect_key($bookingR
 $lastPayment = static fn(int $id): int => (int) $pdo->query("SELECT MAX(id) FROM payments WHERE booking_id = $id")->fetchColumn();
 
 // Test 7: two installments, void one → balance restored.
-[$P] = $userBooking($basePost('Pay Client', $lawnB, '2027-09-09'));   // Rs. 1,00,000
+[$P] = $userBooking($basePost('Pay Client', $lawnB, '2027-09-09', 'Afternoon'));   // Rs. 1,00,000
 $confirmMsg($P['id']);
 $versionBefore = $ver($P['id']);
 check('installment 1', $pay($P['id'], '30,000'), null);
@@ -921,6 +986,68 @@ check('retired item still on the existing booking', isset(booking_form_lines($pd
 check('create a catalog item', $adminRefused(fn() => create_catalog_item($pdo, $adminRow, clean_catalog_input(
     ['section' => 'charge', 'name' => 'Fireworks', 'unit' => 'fixed', 'default_rate' => '75,000', 'sort_order' => '90', 'is_active' => '1'], true))), null);
 check('new catalog item offered', isset(booking_form_lines($pdo, null)['c' . $catalogId('Fireworks')]), true);
+
+// Event slots: configured by the admin, never in code. Bookings keep the times they were made with.
+$slotIn = static fn(string $name, string $start, string $end, array $extra = []) =>
+    clean_slot_input($extra + ['name' => $name, 'start_time' => $start, 'end_time' => $end, 'sort_order' => '40']);
+$has = static fn(?string $msg, string $needle): bool => $msg !== null && strpos($msg, $needle) !== false;
+$pool = (int) $pdo->query("SELECT id FROM venues WHERE name = 'Pool side'")->fetchColumn();
+check('slot: end before start refused', $has($adminRefused(fn() => $slotIn('Late', '15:00', '12:00')), 'before the start time'), true);
+check('slot: equal start and end refused', $has($adminRefused(fn() => $slotIn('Zero', '15:00', '15:00')), 'different from the start'), true);
+check('slot: "ends after midnight" with a same-day end refused', $has($adminRefused(fn() => $slotIn('Odd', '12:00', '15:00', ['ends_next_day' => '1'])), 'same day'), true);
+check('slot: ending at midnight needs no tick', $slotIn('Evening 2', '20:00', '00:00')['end_time'], '00:00:00');
+check('slot: bad time refused', $has($adminRefused(fn() => $slotIn('Bad', '25:00', '26:00')), 'valid time'), true);
+check('slot: overlapping another slot of the venue refused',
+    $has($adminRefused(fn() => create_venue_slot($pdo, $adminRow, $pool, $slotIn('Brunch', '11:00', '13:00'))), 'overlaps “Morning”'), true);
+check('slot: touching slots are fine (the gap between Morning and Afternoon)',
+    $adminRefused(fn() => create_venue_slot($pdo, $adminRow, $pool, $slotIn('Tea', '15:00', '16:00'))), null);
+check('slot: duplicate name at the venue refused',
+    $has($adminRefused(fn() => create_venue_slot($pdo, $adminRow, $pool, $slotIn('Morning', '06:00', '08:00'))), 'already has a slot called'), true);
+check('slot: a new slot is offered on the booking form at once',
+    array_column(slot_availability($pdo, $pool, '2027-06-01', null, null), 'name'), ['Morning', 'Afternoon', 'Evening', 'Tea']);
+$poolEvening = $slotOf($pool, 'Evening');
+check('slot: past midnight, overlapping Evening, refused',
+    $has($adminRefused(fn() => create_venue_slot($pdo, $adminRow, $pool, $slotIn('Late', '21:00', '01:00', ['ends_next_day' => '1']))), 'overlaps “Evening”'), true);
+check('slot: disable Evening', $adminRefused(fn() => set_venue_slot_active($pdo, $adminRow, $poolEvening, false)), null);
+check('slot: past midnight accepted once Evening is off',
+    $adminRefused(fn() => create_venue_slot($pdo, $adminRow, $pool, $slotIn('Late', '21:00', '01:00', ['ends_next_day' => '1']))), null);
+check('slot: an early slot the next day overlapping the late one refused',
+    $has($adminRefused(fn() => create_venue_slot($pdo, $adminRow, $pool, $slotIn('Dawn', '00:30', '02:00'))), 'overlaps “Late”'), true);
+check('slot: re-enabling Evening refused while it overlaps Late',
+    $has($adminRefused(fn() => set_venue_slot_active($pdo, $adminRow, $poolEvening, true)), 'overlaps “Late”'), true);
+check('slot: a disabled slot is not offered', in_array('Evening', array_column(slot_availability($pdo, $pool, '2027-06-01', null, null), 'name'), true), false);
+
+// Editing a slot used by a booking changes new bookings only.
+$morningA = $slotOf($lawnA);
+check('slot: edit the times of a used slot',
+    $adminRefused(fn() => update_venue_slot($pdo, $adminRow, $morningA, $slotIn('Morning', '11:00', '14:00', ['sort_order' => '10']), true)), null);
+check('slot: the existing booking keeps its original times',
+    [$bookingRow($created['id'])['slot_name'], $bookingRow($created['id'])['slot_start'], $bookingRow($created['id'])['slot_end']], ['Morning', '12:00:00', '15:00:00']);
+check('slot: the booking form shows the new times', slot_availability($pdo, $lawnA, '2027-06-01', null, null)[0]['time'], '11:00 AM – 2:00 PM');
+[$NEW] = $userBooking($basePost('After Edit', $lawnA, '2027-06-01'));
+check('slot: a new booking takes the new times', [$bookingRow($NEW['id'])['slot_start'], $bookingRow($NEW['id'])['start_time']], ['11:00:00', '11:00:00']);
+check('slot: the agreement prints the booked times', dslot($bookingRow($created['id'])), 'Morning, 12:00 pm – 3:00 pm');
+check('slot: a used slot can\'t be deleted', $has($adminRefused(fn() => delete_venue_slot($pdo, $adminRow, $morningA)), 'Disable it instead'), true);
+check('slot: disable a used slot', $adminRefused(fn() => set_venue_slot_active($pdo, $adminRow, $morningA, false)), null);
+check('slot: a disabled slot can\'t be chosen for a new booking',
+    $has($userBooking($basePost('Too Late', $lawnA, '2027-06-02'))[1]['slot_id'] ?? null, 'offered for this venue'), true);
+check('slot: a booking holding a disabled slot still shows it',
+    array_map(static fn($s) => [$s['name'], $s['own'], $s['disabled']],
+        array_slice(slot_availability($pdo, $lawnA, '2027-06-01', (int) $NEW['id'], $morningA), 0, 1)), [['Morning', true, true]]);
+[, $e] = $submit($adminRow, $NEW['id'], $ver($NEW['id']), ['user_id' => (string) $userRow['id'], 'guests' => '90'] + $basePost('After Edit', $lawnA, '2027-06-01'));
+check('slot: that booking still saves with its disabled slot', $e, []);
+check('slot: an unused slot can be deleted', $adminRefused(fn() => delete_venue_slot($pdo, $adminRow, $slotOf($pool, 'Tea'))), null);
+check('slot changes audited', (int) $pdo->query("SELECT COUNT(*) FROM audit_log WHERE action = 'venue_change' AND details LIKE '%slot_%'")->fetchColumn() >= 6, true);
+
+// A new venue starts without slots (so it can't be booked yet) and can copy another venue's.
+create_venue($pdo, $adminRow, 'Roof Deck', '', '70');
+$roof = (int) $pdo->query("SELECT id FROM venues WHERE name = 'Roof Deck'")->fetchColumn();
+check('new venue: no slots, so a dated booking is refused',
+    $has($submit($adminRow, null, null, ['client_name' => 'Roof', 'venue_id' => (string) $roof, 'event_date' => '2027-06-03'])[1]['slot_id'] ?? null, 'no event slots set up'), true);
+check('copy slots from another venue', copy_venue_slots($pdo, $adminRow, $lawnA, $roof), 2);
+check('copying into a venue that has slots refused', $has($adminRefused(fn() => copy_venue_slots($pdo, $adminRow, $lawnA, $roof)), 'already has slots'), true);
+check('an unused venue with slots can still be deleted', $adminRefused(fn() => delete_venue($pdo, $adminRow, $roof)), null);
+check('slot: re-enable Lawn A morning for the checks below', $adminRefused(fn() => set_venue_slot_active($pdo, $adminRow, $morningA, true)), null);
 
 // Admin creates a user: active at once, temporary password, must change it, audited.
 $created = create_user($pdo, $adminRow, clean_user_input(

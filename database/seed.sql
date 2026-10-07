@@ -57,6 +57,15 @@ INSERT INTO venues (name, location, is_active, sort_order) VALUES
 ('Pool side', NULL, 1, 40),
 ('Hall',      NULL, 1, 50);
 
+-- Default event slots for every venue (the admin changes them on the Event Slots page).
+-- Evening ends at midnight: an end time at or before the start means "the next day".
+INSERT INTO venue_slots (venue_id, name, icon, start_time, end_time, sort_order)
+SELECT v.id, d.name, d.icon, d.start_time, d.end_time, d.sort_order
+  FROM venues v
+  CROSS JOIN (SELECT 'Morning' AS name, '🌅' AS icon, '12:00:00' AS start_time, '15:00:00' AS end_time, 10 AS sort_order
+              UNION ALL SELECT 'Afternoon', '☀️', '16:00:00', '19:00:00', 20
+              UNION ALL SELECT 'Evening',   '🌙', '20:00:00', '00:00:00', 30) d;
+
 -- ---------------------------------------------------------------------------
 -- Charge catalog — neutral names, no default rates (open question 2: the admin fills them in).
 -- ---------------------------------------------------------------------------

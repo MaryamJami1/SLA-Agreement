@@ -39,6 +39,8 @@ if ($viewer !== null && (int) $viewer['must_change_password'] !== 1) {
         $tabs['menus'] = ['admin/menus.php', 'Menus'];
         $tabs['venues'] = ['admin/venues.php', 'Venues'];
         $tabs['vendors'] = ['admin/vendors.php', 'Vendors'];
+        $tabs['slots'] = ['admin/slots.php', 'Event Slots'];
+        $tabs['preflight'] = ['admin/preflight.php', 'Checks'];
         try {
             $approvalCount = (int) db()->query(
                 "SELECT (SELECT COUNT(*) FROM users WHERE role = 'user' AND status = 'pending')

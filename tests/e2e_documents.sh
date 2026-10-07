@@ -31,6 +31,7 @@ $MYSQL -e "UPDATE users SET password_hash='$HASH', must_change_password=0 WHERE 
   ('bilal','$HASH','user','Bilal Ahmed','Bilal Events','Bilal Ahmed','0300-1111111','active');"
 USER_ID=$($MYSQL -e "SELECT id FROM users WHERE username='uzair'")
 LAWN_A=$($MYSQL -e "SELECT id FROM venues WHERE name='Lawn A'")
+SLOT_A=$($MYSQL -e "SELECT id FROM venue_slots WHERE venue_id=$LAWN_A AND name='Evening'")
 VENUE_CHARGE=$($MYSQL -e "SELECT id FROM item_catalog WHERE name='Venue Charges'")
 TRACING=$($MYSQL -e "SELECT id FROM item_catalog WHERE section='charge' AND unit='per unit' LIMIT 1")
 LED=$($MYSQL -e "SELECT id FROM item_catalog WHERE name='LED'")
@@ -41,7 +42,7 @@ login a admin Passw0rd-e2e
 
 FORM=( "client_name=Ayesha Siddiqui" "client_relation=D/o Muhammad Siddiqui" "client_cnic=42101-1234567-1"
        "client_contact=0333-1234567" "client_address=12-C, Khayaban-e-Shahbaz, DHA Phase 6, Karachi"
-       "event_type=Valima" "event_date=2027-02-14" "venue_id=$LAWN_A" "guests=200" "per_head_rate=1500"
+       "event_type=Valima" "event_date=2027-02-14" "venue_id=$LAWN_A" "slot_id=$SLOT_A" "guests=200" "per_head_rate=1500"
        "setup_time=16:00" "start_time=19:30" "menu_type=Buffet" "food_items=Mutton Karahi
 Chicken Biryani" "theme=Ivory and gold" "stage=Fabric" "agreement_day=14th" "agreement_month=September, 2026"
        "discount=5000" "refund_pct_30=50" "refund_pct_7=25" "special_commitments=Dedicated event coordinator on site"
@@ -80,7 +81,7 @@ contains "Uzair Caterers" "user firm"
 contains "14 Feb 2027" "event date"
 contains "(Sunday)" "day of the week calculated"
 contains "Lawn A" "venue"
-contains "7:30 pm" "start time"
+contains "Evening, 8:00 pm – 12:00 am" "event time is the booked slot"
 contains "Rs. 3,00,000" "guest charges 1,500 x 200"
 contains "Rs. 50,000" "venue charge line"
 contains "Rs. 3,000" "per-unit tracing line 10 x 300"

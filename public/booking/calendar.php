@@ -63,8 +63,8 @@ require APP_ROOT . '/app/views/layout_top.php';
   <h2>Booking Calendar</h2>
   <span class="muted"><?= count($entries) ?> booking(s) this month</span>
 </div>
-<p class="muted">Every venue booking for the month, whoever raised it. Check a date here before promising it — a venue can
-  only be confirmed once per day. Cancelled bookings are not shown; they release the date.</p>
+<p class="muted">Every venue booking for the month, whoever raised it. Check a date here before promising it — each venue's
+  event slots can only be booked once per day. Cancelled bookings are not shown; they release the date.</p>
 
 <div class="card pad cal-card">
   <div class="cal-toolbar">
@@ -103,17 +103,18 @@ require APP_ROOT . '/app/views/layout_top.php';
 <?php foreach ($dayEntries as $entry):
               $mine = calendar_entry_is_own($user, $entry);
               $where = trim((string) $entry['venue_location']);
-              $where = $where === '' ? '' : ' (' . $where . ')'; ?>
+              $where = $where === '' ? '' : ' (' . $where . ')';
+              $slot = $entry['slot_name'] !== null ? ' · ' . $entry['slot_name'] : ''; ?>
         <li class="cal-entry">
           <span class="cal-dot status-<?= h($entry['status']) ?>" title="<?= h(ucfirst($entry['status'])) ?>"></span>
 <?php if ($mine): ?>
           <a href="<?= h(url('booking/form.php?id=' . (int) $entry['id'])) ?>"
              title="<?= h(format_document_number($entry['unique_id'], 'SLA', (int) $entry['revision']) . ' — ' . $entry['client_name']
                           . ', ' . ($entry['venue'] ?? 'no venue') . $where . ', ' . ucfirst($entry['status'])) ?>">
-            <?= h($entry['venue'] ?? 'No venue') ?></a>
+            <?= h(($entry['venue'] ?? 'No venue') . $slot) ?></a>
           <span class="cal-who"><?= h($entry['client_name']) ?></span>
 <?php else: ?>
-          <span class="cal-taken" title="<?= h(($entry['venue'] ?? 'No venue') . $where . ' — ' . ucfirst($entry['status']) . ', booked by another user') ?>"><?= h($entry['venue'] ?? 'No venue') ?></span>
+          <span class="cal-taken" title="<?= h(($entry['venue'] ?? 'No venue') . $where . ' — ' . ucfirst($entry['status']) . ', booked by another user') ?>"><?= h(($entry['venue'] ?? 'No venue') . $slot) ?></span>
           <span class="cal-who">booked</span>
 <?php endif; ?>
         </li>

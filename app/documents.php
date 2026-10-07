@@ -108,6 +108,18 @@ function dtime($time, string $empty = '—'): string
     return $time ? date('g:i a', strtotime('2000-01-01 ' . $time)) : $empty;
 }
 
+/**
+ * When the event runs: the booked slot with its times ("Evening, 8:00 pm – 12:00 am") — as they were
+ * when the slot was booked, not as the slot reads today — or, for bookings without a slot, the start time.
+ */
+function dslot(array $booking, string $empty = '—'): string
+{
+    if (($booking['slot_name'] ?? null) !== null) {
+        return $booking['slot_name'] . ', ' . dtime($booking['slot_start']) . ' – ' . dtime($booking['slot_end']);
+    }
+    return dtime($booking['start_time'], $empty);
+}
+
 /** The venue with its location appended, e.g. "Lawn A — Ground floor, Block B". */
 function dvenue(array $d, string $empty = '—'): string
 {

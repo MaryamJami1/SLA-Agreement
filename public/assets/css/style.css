@@ -510,6 +510,54 @@ label.check{display:flex;gap:9px;align-items:flex-start;font-size:.875rem;cursor
   transform:translateY(2px);
 }
 .error-list{margin:6px 0 0;padding-left:20px;font-size:.8125rem;}
+
+/* Event slots: one card per slot the admin configured for the venue. A booked slot stays visible
+   (so it's clear why it can't be picked) but is greyed out and can't be selected. */
+.slot-field{gap:10px;}
+.slot-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 12px;}
+.slot-title{font-size:.8125rem;font-weight:500;color:var(--ink-2);}
+.slot-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;transition:opacity var(--t);}
+.slot-grid[hidden]{display:none;}
+.slot-field.is-loading .slot-grid{opacity:.5;pointer-events:none;}
+.slot-card{
+  display:grid;grid-template-columns:16px auto 1fr;
+  grid-template-areas:"radio icon body" ". . state";
+  align-items:center;gap:8px 10px;
+  padding:14px 16px;
+  border:1px solid var(--line-strong);border-radius:var(--r);
+  background:var(--surface);
+  cursor:pointer;
+  transition:border-color var(--t),background var(--t),box-shadow var(--t);
+}
+.slot-card input{grid-area:radio;}
+.slot-icon{grid-area:icon;font-size:1.25rem;line-height:1;}
+.slot-icon:empty{display:none;}
+.slot-card:has(.slot-icon:empty){grid-template-columns:16px 1fr;grid-template-areas:"radio body" ". state";}
+.slot-body{grid-area:body;display:flex;flex-direction:column;gap:2px;min-width:0;}
+.slot-name{font-size:.9375rem;font-weight:600;color:var(--ink);}
+.slot-time{font-size:.8125rem;color:var(--ink-2);font-variant-numeric:tabular-nums;}
+.slot-state{
+  grid-area:state;justify-self:start;
+  display:inline-flex;align-items:center;gap:5px;
+  font-size:.75rem;font-weight:500;
+  padding:2px 9px;border-radius:100px;
+  border:1px solid var(--ok-bd);background:var(--ok-bg);color:var(--ok);
+}
+.slot-state::before{content:"\2713";font-weight:700;}
+.slot-card:not(.is-booked):hover{border-color:var(--brand);background:var(--brand-tint);}
+.slot-card:has(input:checked){border-color:var(--brand);background:var(--brand-tint);box-shadow:var(--ring);}
+.slot-card:has(input:focus-visible){box-shadow:var(--ring);}
+.slot-card.is-booked{cursor:not-allowed;background:var(--surface-3);border-color:var(--line-2);}
+.slot-card.is-booked :is(.slot-name,.slot-time,.slot-icon){opacity:.55;}
+.slot-card.is-booked .slot-state{border-color:var(--danger-bd);background:var(--danger-bg);color:var(--danger);}
+.slot-card.is-booked .slot-state::before{content:"\2715";}
+.slot-message{
+  margin:0;padding:12px 14px;
+  font-size:.875rem;color:var(--neutral);
+  background:var(--neutral-bg);border:1px solid var(--neutral-bd);border-radius:var(--r-sm);
+}
+.slot-message.is-error{color:var(--danger);background:var(--danger-bg);border-color:var(--danger-bd);}
+.slot-readout{font-weight:600;gap:8px;}
 .policy-note{font-size:.8125rem;color:var(--ink-2);margin:12px 0 0;}
 
 /* Locked records stay legible — they are the record, not a dead control. */
@@ -1036,6 +1084,32 @@ table.payment-table tr.refund td.num{color:var(--danger);font-weight:500;}
 .catalog-chip{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;background:var(--line-2);
   font-size:.7rem;font-weight:600;letter-spacing:.02em;text-transform:uppercase;}
 .admin-row-extra{padding:0 0 14px;border-bottom:1px solid var(--line-2);}
+
+/* Event Slot Management */
+.venue-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px;}
+.venue-tabs a{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:7px 12px 7px 14px;
+  font-size:.875rem;font-weight:500;color:var(--ink-2);text-decoration:none;
+  background:var(--surface);border:1px solid var(--line-strong);border-radius:100px;
+  transition:border-color var(--t),background var(--t),color var(--t);
+}
+.venue-tabs a:hover{border-color:var(--brand);background:var(--brand-tint);color:var(--brand);}
+.venue-tabs a.current{background:var(--brand);border-color:var(--brand);color:var(--ink-inv);}
+.venue-tab-count{
+  min-width:20px;padding:1px 6px;border-radius:100px;
+  font-size:.6875rem;font-weight:700;text-align:center;
+  background:var(--surface-3);color:var(--ink-2);
+}
+.venue-tabs a.current .venue-tab-count{background:rgba(255,255,255,.2);color:var(--ink-inv);}
+.slot-form .check{margin-top:4px;}
+.slot-form-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px;}
+.slot-form-card .flash{margin:0 0 16px;}
+.slot-cell{display:inline-flex;align-items:center;gap:6px;}
+table.slot-table td.num,table.slot-table th.num{text-align:right;font-variant-numeric:tabular-nums;}
+table.slot-table tr.is-inactive td:not(.actions){color:var(--ink-3);}
+table.registry .rowbtn.is-locked{opacity:.45;cursor:not-allowed;}
+.slot-footnote{margin:12px 0 0;}
 .card.attachments{margin-top:18px;}
 .card.attachments input[type=file]{font-size:.875rem;}
 

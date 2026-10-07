@@ -68,7 +68,7 @@ $yesNo(is_file($docRoot . '/.user.ini'), 'Folders', '.user.ini in the web root',
 
 // --- Database --------------------------------------------------------------
 $tables = (int) $pdo->query('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()')->fetchColumn();
-$yesNo($tables >= 11, 'Database', 'All tables imported', "$tables tables", "$tables tables — import database/schema.sql");
+$yesNo($tables >= 12, 'Database', 'All tables imported', "$tables tables", "$tables tables — import database/schema.sql");
 $notInnoDb = (int) $pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND engine <> 'InnoDB'")->fetchColumn();
 $yesNo($notInnoDb === 0, 'Database', 'InnoDB everywhere', 'all tables use InnoDB', "$notInnoDb table(s) are not InnoDB — transactions would not work");
 $version = (int) $pdo->query('SELECT COALESCE(MAX(version), 0) FROM schema_version')->fetchColumn();
